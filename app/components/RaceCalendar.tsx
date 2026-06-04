@@ -1,3 +1,5 @@
+import Link from 'next/link'
+
 type Race = {
   round: string
   raceName: string
@@ -17,7 +19,6 @@ const COUNTRY_FLAGS: Record<string, string> = {
   UK: '🇬🇧', 'United Kingdom': '🇬🇧', Hungary: '🇭🇺', Belgium: '🇧🇪',
   Netherlands: '🇳🇱', Singapore: '🇸🇬', Azerbaijan: '🇦🇿', Mexico: '🇲🇽',
   Brazil: '🇧🇷', UAE: '🇦🇪', Qatar: '🇶🇦', Portugal: '🇵🇹',
-  France: '🇫🇷', Germany: '🇩🇪', Russia: '🇷🇺', Turkey: '🇹🇷',
 }
 
 async function getCalendar(): Promise<Race[]> {
@@ -32,7 +33,6 @@ async function getCalendar(): Promise<Race[]> {
   const races: Race[] = scheduleData.MRData.RaceTable.Races
   const results: Race[] = resultsData.MRData.RaceTable.Races
 
-  // Merge winners into schedule
   return races.map((race) => {
     const result = results.find((r) => r.round === race.round)
     return result ? { ...race, Results: result.Results } : race
@@ -66,21 +66,19 @@ export default async function RaceCalendar() {
         const winner = race.Results?.[0]
 
         return (
-          <div
+          <Link
             key={race.round}
-            className="flex items-center gap-4 px-5 py-4 rounded-xl transition-opacity"
+            href={`/calendario/${race.round}`}
+            className="flex items-center gap-4 px-5 py-4 rounded-xl transition-opacity hover:opacity-80"
             style={{
               background: isNext ? 'var(--f1-light-gray)' : 'var(--f1-gray)',
               opacity: isPast && !isNext ? 0.6 : 1,
               borderLeft: isNext ? '3px solid var(--f1-red)' : '3px solid transparent',
             }}
           >
-            {/* Round */}
             <span className="w-6 text-xs font-mono text-center shrink-0" style={{ color: 'var(--f1-muted)' }}>
               R{race.round}
             </span>
-
-            {/* Flag + name */}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <span className="text-lg">{flag}</span>
@@ -96,23 +94,22 @@ export default async function RaceCalendar() {
                 {race.Circuit.circuitName} — {race.Circuit.Location.locality}
               </div>
             </div>
-
-            {/* Winner o fecha */}
-            <div className="text-right shrink-0">
+            <div className="text-right shrink-0 flex items-center gap-2">
               {isPast && winner ? (
-                <>
+                <div className="text-right">
                   <div className="text-sm font-bold">
                     {winner.Driver.givenName[0]}. {winner.Driver.familyName}
                   </div>
                   <div className="text-xs" style={{ color: 'var(--f1-muted)' }}>
                     {winner.Constructor.name}
                   </div>
-                </>
+                </div>
               ) : (
                 <div className="text-sm font-medium">{formatDate(race.date)}</div>
               )}
+              <span style={{ color: 'var(--f1-muted)' }}>›</span>
             </div>
-          </div>
+          </Link>
         )
       })}
     </div>
