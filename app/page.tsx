@@ -1,5 +1,6 @@
 import DriverStandings from './components/DriverStandings'
 import ConstructorStandings from './components/ConstructorStandings'
+import NextRace from './components/NextRace'
 
 export default function Home() {
   return (
@@ -10,6 +11,7 @@ export default function Home() {
       <p style={{ color: 'var(--f1-muted)' }} className="mb-8">
         Temporada 2026
       </p>
+      <NextRace />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <DriverStandings />
         <ConstructorStandings />
