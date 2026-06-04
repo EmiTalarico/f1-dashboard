@@ -8,7 +8,7 @@ type Driver = {
 
 async function getDriverStandings() {
   const res = await fetch(
-     'https://api.jolpi.ca/ergast/f1/2025/driverStandings.json',
+     'https://api.jolpi.ca/ergast/f1/2026/driverStandings.json',
     { next: { revalidate: 3600 } }
   )
   const data = await res.json()

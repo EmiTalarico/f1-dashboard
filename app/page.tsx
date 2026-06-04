@@ -7,7 +7,7 @@ export default function Home() {
         <span style={{ color: 'var(--f1-red)' }}>F1</span> Dashboard
       </h1>
       <p style={{ color: 'var(--f1-muted)' }} className="mb-8">
-        Temporada 2025
+        Temporada 2026
       </p>
       <DriverStandings />
     </main>
