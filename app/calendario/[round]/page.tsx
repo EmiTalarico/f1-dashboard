@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { CIRCUIT_DATA } from '../../data/circuits'
+import CircuitImage from '../../components/CircuitImage'
 
 type Race = {
   raceName: string
@@ -48,7 +49,6 @@ async function getRaceData(round: string): Promise<{ current: Race | null; past:
 
   const circuitId = current.Circuit.circuitId
 
-  // Get last 5 winners at this circuit across all seasons
   const historyRes = await fetch(
     `https://api.jolpi.ca/ergast/f1/circuits/${circuitId}/results/1.json?limit=250&offset=0`,
     { next: { revalidate: 86400 } }
@@ -56,7 +56,6 @@ async function getRaceData(round: string): Promise<{ current: Race | null; past:
   const historyData = await historyRes.json()
   const past: Race[] = historyData.MRData.RaceTable.Races.slice(0, 250).reverse()
 
-  // Merge current race result if available
   const result = pastData.MRData.RaceTable.Races[0]
   if (result) {
     return { current: { ...current, Results: result.Results }, past }
@@ -122,6 +121,15 @@ export default async function CircuitDetailPage({
             {TYPE_LABELS[data.type]}
           </span>
         )}
+      </div>
+
+      {/* Trazado del circuito */}
+      <div className="rounded-xl overflow-hidden mb-6 flex items-center justify-center p-6"
+        style={{ background: 'var(--f1-gray)' }}>
+        <CircuitImage
+          src={`/circuits/${circuitId}.avif`}
+          alt={`Trazado ${current.Circuit.circuitName}`}
+        />
       </div>
 
       {/* Stats grid */}
