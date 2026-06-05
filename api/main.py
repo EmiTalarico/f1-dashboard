@@ -1,3 +1,4 @@
+import os
 import fastf1
 import pandas as pd
 from fastapi import FastAPI, HTTPException
@@ -13,7 +14,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Cache para no redownloadear datos
+
+os.makedirs("cache", exist_ok=True)
 fastf1.Cache.enable_cache("cache")
 
 
