@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { href: '/noticias',    label: 'Noticias',   icon: '📰', ready: true  },
   { href: '/calendario',  label: 'Calendario', icon: '📅', ready: true  },
   { href: '/resultados',  label: 'Resultados', icon: '🏆', ready: true  },
+  { href: '/escuderias',  label: 'Escuderías', icon: '🏎️', ready: true  },
   { href: '/telemetria',  label: 'Telemetría', icon: '📡', ready: false },
   { href: '/live',        label: 'Live',       icon: '🔴', ready: false },
 ]
