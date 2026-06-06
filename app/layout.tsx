@@ -7,8 +7,11 @@ const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] })
 const geistMono = Geist_Mono({ variable: '--font-geist-mono', subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'F1 Dashboard',
-  description: 'Standings, noticias y live timing de Formula 1',
+  title: 'F1Pasión',
+  description: 'Standings, noticias, telemetría y live timing de Formula 1',
+  icons: {
+    icon: '/favicon.ico',
+  },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

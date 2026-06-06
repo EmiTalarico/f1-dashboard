@@ -23,10 +23,13 @@ export default function Navbar() {
         className="hidden md:flex flex-col w-56 min-h-screen fixed left-0 top-0 py-8 px-4 gap-1"
         style={{ background: 'var(--f1-gray)', borderRight: '1px solid var(--f1-light-gray)' }}
       >
-        <div className="px-3 mb-8">
-          <span className="text-2xl font-black" style={{ color: 'var(--f1-red)' }}>F1</span>
-          <span className="text-2xl font-black"> Dashboard</span>
-        </div>
+        <div className="px-8 mb-8">
+          <img
+            src="/logoNavbar.png"
+            alt="F1Pasión"
+            className="h-30 w-auto"
+          />
+      </div>
 
         {NAV_ITEMS.map(({ href, label, icon, ready }) => {
           const active = pathname === href
