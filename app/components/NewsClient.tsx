@@ -15,9 +15,10 @@ const SOURCE_COLORS: Record<string, string> = {
   Autosport: '#0057b8',
   PlanetF1: '#00a550',
   Marca: '#ff6600',
-  'F1 al día': '#8b5cf6',
   'AS Motor': '#cc0000',
-  'Infobae Autos': '#e91e63',
+  Racer: '#f59e0b',
+  'F1 Oficial': '#1e90ff',
+  'F1 Latam': '#e67e22',
 }
 
 function timeAgo(dateStr: string) {
@@ -40,11 +41,12 @@ function SourceBadge({ source }: { source: string }) {
   )
 }
 
-const ALL_SOURCES = Object.keys(SOURCE_COLORS)
-
 export default function NewsClient({ news }: { news: NewsItem[] }) {
   const [query, setQuery] = useState('')
   const [activeSource, setActiveSource] = useState<string | null>(null)
+
+  // Fuentes dinámicas desde las noticias que realmente llegaron
+  const availableSources = [...new Set(news.map(n => n.source))]
 
   const filtered = news.filter(item => {
     const matchesQuery = query === '' ||
@@ -99,13 +101,13 @@ export default function NewsClient({ news }: { news: NewsItem[] }) {
         >
           Todas
         </button>
-        {ALL_SOURCES.filter(s => news.some(n => n.source === s)).map(source => (
+        {availableSources.map(source => (
           <button
             key={source}
             onClick={() => setActiveSource(activeSource === source ? null : source)}
             className="text-xs font-bold px-3 py-1.5 rounded-full transition-opacity hover:opacity-80"
             style={{
-              background: activeSource === source ? SOURCE_COLORS[source] : 'var(--f1-light-gray)',
+              background: activeSource === source ? (SOURCE_COLORS[source] ?? '#444') : 'var(--f1-light-gray)',
               color: '#fff',
             }}
           >

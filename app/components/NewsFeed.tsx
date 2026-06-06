@@ -15,6 +15,9 @@ const FEEDS = [
   { url: 'https://www.planetf1.com/feed/', source: 'PlanetF1' },
   { url: 'https://www.marca.com/rss/motor/formula1.xml', source: 'Marca' },
   { url: 'https://as.com/rss/tags/formula_1.xml', source: 'AS Motor' },
+  { url: 'https://racer.com/f1/feed', source: 'Racer' },
+  { url: 'https://formula1.com/en/latest/all.xml', source: 'F1 Oficial' },
+  { url: 'https://www.f1latam.com/rss/rss.php', source: 'F1 Latam' },
 ]
 
 async function getNews(): Promise<NewsItem[]> {
@@ -28,7 +31,7 @@ async function getNews(): Promise<NewsItem[]> {
         const parsed = parser.parse(xml)
         const items = parsed.rss?.channel?.item ?? []
         const arr = Array.isArray(items) ? items : [items]
-        return arr.slice(0, 8).map((item: any) => ({
+        return arr.slice(0, 10).map((item: any) => ({
           title: item.title,
           link: item.link,
           pubDate: item.pubDate,
@@ -46,7 +49,7 @@ async function getNews(): Promise<NewsItem[]> {
   return results
     .flat()
     .sort((a, b) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime())
-    .slice(0, 30)
+    .slice(0, 40)
 }
 
 export default async function NewsFeed() {
