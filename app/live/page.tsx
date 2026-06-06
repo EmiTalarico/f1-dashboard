@@ -113,6 +113,17 @@ const FLAG_COLORS: Record<string, string> = {
   CLEAR: '#00a550',
 }
 
+const SESSION_LABELS: Record<string, string> = {
+  'Practice 1': '🟢 Práctica 1',
+  'Practice 2': '🟢 Práctica 2',
+  'Practice 3': '🟢 Práctica 3',
+  'Qualifying': '🟡 Clasificación',
+  'Sprint Qualifying': '🟡 Sprint Qualifying',
+  'Sprint Shootout': '🟡 Sprint Shootout',
+  'Sprint': '🟠 Sprint',
+  'Race': '🏁 Carrera',
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function fmtTime(seconds: number | null): string {
@@ -149,7 +160,6 @@ export default function LiveTimingPage() {
   const [loading, setLoading] = useState(true)
   const [sessionActive, setSessionActive] = useState(false)
 
-  // ── Fetch session info ──
   const fetchSession = useCallback(async () => {
     try {
       const res = await fetch(`${BASE}/sessions?session_key=latest`)
@@ -167,7 +177,6 @@ export default function LiveTimingPage() {
     return null
   }, [])
 
-  // ── Fetch drivers (static, once per session) ──
   const fetchDrivers = useCallback(async (sessionKey: number) => {
     try {
       const res = await fetch(`${BASE}/drivers?session_key=${sessionKey}`)
@@ -178,7 +187,6 @@ export default function LiveTimingPage() {
     } catch { }
   }, [])
 
-  // ── Fetch live data ──
   const fetchLiveData = useCallback(async (sessionKey: number) => {
     try {
       const [posRes, intRes, stintRes, lapRes, pitRes, rcRes, wxRes] = await Promise.all([
@@ -196,7 +204,6 @@ export default function LiveTimingPage() {
         lapRes.json(), pitRes.json(), rcRes.json(), wxRes.json(),
       ])
 
-      // Latest position per driver
       const posMap: Record<number, Position> = {}
       ;(posData as Position[]).forEach(p => {
         if (!posMap[p.driver_number] || p.date > posMap[p.driver_number].date)
@@ -204,7 +211,6 @@ export default function LiveTimingPage() {
       })
       setPositions(posMap)
 
-      // Latest interval per driver
       const intMap: Record<number, Interval> = {}
       ;(intData as Interval[]).forEach(i => {
         if (!intMap[i.driver_number] || i.date > intMap[i.driver_number].date)
@@ -212,14 +218,12 @@ export default function LiveTimingPage() {
       })
       setIntervals(intMap)
 
-      // Current stint per driver (last one)
       const stintMap: Record<number, Stint> = {}
       ;(stintData as Stint[]).sort((a, b) => a.lap_start - b.lap_start).forEach(s => {
         stintMap[s.driver_number] = s
       })
       setStints(stintMap)
 
-      // Latest lap per driver
       const lapMap: Record<number, Lap> = {}
       ;(lapData as Lap[]).forEach(l => {
         if (!lapMap[l.driver_number] || l.lap_number > lapMap[l.driver_number].lap_number)
@@ -227,7 +231,6 @@ export default function LiveTimingPage() {
       })
       setLaps(lapMap)
 
-      // Pit count per driver
       const pitMap: Record<number, Pit[]> = {}
       ;(pitData as Pit[]).forEach(p => {
         if (!pitMap[p.driver_number]) pitMap[p.driver_number] = []
@@ -235,10 +238,8 @@ export default function LiveTimingPage() {
       })
       setPits(pitMap)
 
-      // Race control — last 5 messages
       setRaceControl((rcData as RaceControl[]).slice(-5).reverse())
 
-      // Latest weather
       if ((wxData as Weather[]).length > 0)
         setWeather((wxData as Weather[]).slice(-1)[0])
 
@@ -246,7 +247,6 @@ export default function LiveTimingPage() {
     } catch { }
   }, [])
 
-  // ── Initial load ──
   useEffect(() => {
     const init = async () => {
       setLoading(true)
@@ -260,7 +260,6 @@ export default function LiveTimingPage() {
     init()
   }, [fetchSession, fetchDrivers, fetchLiveData])
 
-  // ── Polling every 5s ──
   useEffect(() => {
     if (!session) return
     const interval = setInterval(() => {
@@ -269,7 +268,9 @@ export default function LiveTimingPage() {
     return () => clearInterval(interval)
   }, [session, fetchLiveData])
 
-  // ── Build sorted driver list ──
+  const currentLap = Math.max(...Object.values(laps).map(l => l.lap_number ?? 0), 0)
+  const sessionLabel = session ? (SESSION_LABELS[session.session_name] ?? session.session_name) : ''
+
   const sortedDrivers = Object.values(positions)
     .sort((a, b) => a.position - b.position)
     .map(p => ({
@@ -283,14 +284,11 @@ export default function LiveTimingPage() {
     }))
     .filter(d => d.driver)
 
-  // ── Tyre age calculation ──
   function tyreAge(d: typeof sortedDrivers[0]): number {
     if (!d.stint || !d.lap) return 0
     const currentLap = d.lap.lap_number
     return currentLap - d.stint.lap_start + (d.stint.tyre_age_at_start ?? 0)
   }
-
-  // ─── Render ───────────────────────────────────────────────────────────────
 
   if (loading) {
     return (
@@ -299,7 +297,7 @@ export default function LiveTimingPage() {
           <span style={{ color: 'var(--f1-red)' }}>🔴 Live</span> Timing
         </h1>
         <div className="text-center py-24" style={{ color: 'var(--f1-muted)' }}>
-          Desplegando DRS, intentando el sobrepaso!
+          Conectando con OpenF1...
         </div>
       </main>
     )
@@ -311,46 +309,72 @@ export default function LiveTimingPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
         <div>
-          <h1 className="text-3xl font-bold">
-            <span style={{ color: 'var(--f1-red)' }}>🔴 Live</span> Timing
-          </h1>
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-3xl font-bold">
+              <span style={{ color: 'var(--f1-red)' }}>🔴 Live</span> Timing
+            </h1>
+            {session && (
+              <span
+                className="text-sm font-bold px-3 py-1 rounded-full"
+                style={{
+                  background: sessionActive ? '#00a55022' : 'var(--f1-light-gray)',
+                  color: sessionActive ? '#00a550' : 'var(--f1-muted)',
+                  border: `1px solid ${sessionActive ? '#00a550' : 'var(--f1-light-gray)'}`,
+                }}
+              >
+                {sessionActive ? '⬤ EN VIVO' : '◯ FINALIZADA'}
+              </span>
+            )}
+          </div>
+
           {session && (
-            <p className="text-sm mt-1" style={{ color: 'var(--f1-muted)' }}>
-              {session.location} — {session.session_name}
-              {sessionActive
-                ? <span className="ml-2 text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: '#00a550', color: '#fff' }}>EN VIVO</span>
-                : <span className="ml-2 text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: 'var(--f1-light-gray)', color: 'var(--f1-muted)' }}>SESIÓN FINALIZADA</span>
-              }
-            </p>
+            <div className="flex items-center gap-3 mt-2 flex-wrap">
+              <p className="text-sm" style={{ color: 'var(--f1-muted)' }}>
+                📍 {session.location}, {session.country_name}
+              </p>
+              <span className="text-sm font-bold px-3 py-0.5 rounded-full" style={{ background: 'var(--f1-light-gray)' }}>
+                {sessionLabel}
+              </span>
+              {currentLap > 0 && (session.session_name === 'Race' || session.session_name === 'Sprint') && (
+                <span className="text-sm font-bold px-3 py-0.5 rounded-full" style={{ background: 'var(--f1-red)', color: '#fff' }}>
+                  Vuelta {currentLap}
+                </span>
+              )}
+              {session.session_name === 'Qualifying' && sortedDrivers.length > 0 && (
+                <span className="text-sm font-bold px-3 py-0.5 rounded-full" style={{ background: '#ffd700', color: '#000' }}>
+                  {sortedDrivers.length > 15 ? 'Q1' : sortedDrivers.length > 10 ? 'Q2' : 'Q3'}
+                </span>
+              )}
+            </div>
           )}
         </div>
+
         {lastUpdate && (
           <p className="text-xs" style={{ color: 'var(--f1-muted)' }}>
-            Actualizado: {lastUpdate.toLocaleTimeString('es-AR')}
+            🔄 {lastUpdate.toLocaleTimeString('es-AR')}
           </p>
         )}
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
 
-        {/* ── Tabla principal ── */}
+        {/* Tabla principal — desktop */}
         <div className="xl:col-span-3">
           <div className="rounded-xl overflow-hidden" style={{ background: 'var(--f1-gray)' }}>
 
-            {/* Cabecera tabla */}
+            {/* Cabecera — solo desktop */}
             <div
-              className="grid gap-2 px-4 py-2 text-xs font-semibold uppercase"
+              className="hidden md:grid gap-2 px-4 py-2 text-xs font-semibold uppercase"
               style={{
                 color: 'var(--f1-muted)',
                 borderBottom: '1px solid var(--f1-light-gray)',
-                gridTemplateColumns: '32px 32px 1fr 80px 60px 80px 80px 80px 80px 32px',
+                gridTemplateColumns: '32px 32px 1fr 90px 80px 80px 80px 80px 32px',
               }}
             >
               <span>Pos</span>
               <span>#</span>
               <span>Piloto</span>
               <span>Neumático</span>
-              <span>Edad</span>
               <span>Última V.</span>
               <span>Gap</span>
               <span>Intervalo</span>
@@ -358,7 +382,6 @@ export default function LiveTimingPage() {
               <span>Pit</span>
             </div>
 
-            {/* Filas */}
             {sortedDrivers.length === 0 ? (
               <div className="text-center py-16" style={{ color: 'var(--f1-muted)' }}>
                 {sessionActive ? 'Esperando datos...' : 'No hay sesión activa en este momento'}
@@ -368,83 +391,86 @@ export default function LiveTimingPage() {
                 {sortedDrivers.map(d => {
                   const compound = d.stint?.compound ?? 'UNKNOWN'
                   const age = tyreAge(d)
-                  const teamColor = d.driver.team_colour
-                    ? `#${d.driver.team_colour}`
-                    : '#888'
+                  const teamColor = d.driver.team_colour ? `#${d.driver.team_colour}` : '#888'
 
                   return (
-                    <div
-                      key={d.driverNumber}
-                      className="grid items-center gap-2 px-4 py-2.5 text-sm"
-                      style={{
-                        gridTemplateColumns: '32px 32px 1fr 90px 80px 80px 80px 80px 32px',
-                        borderLeft: `3px solid ${teamColor}`,
-                      }}
-                    >
-                      {/* Posición */}
-                      <span className="font-bold text-base" style={{ color: d.position === 1 ? 'var(--f1-red)' : 'inherit' }}>
-                        {d.position}
-                      </span>
+                    <div key={d.driverNumber} style={{ borderLeft: `3px solid ${teamColor}` }}>
 
-                      {/* Número */}
-                      <span className="text-xs font-bold" style={{ color: teamColor }}>
-                        {d.driverNumber}
-                      </span>
-
-                      {/* Piloto */}
-                      <div>
-                        <span className="font-bold">{d.driver.name_acronym}</span>
-                        <span className="text-xs ml-1 hidden lg:inline" style={{ color: 'var(--f1-muted)' }}>
-                          {d.driver.full_name}
+                      {/* Desktop row */}
+                      <div
+                        className="hidden md:grid items-center gap-2 px-4 py-2.5 text-sm"
+                        style={{ gridTemplateColumns: '32px 32px 1fr 90px 80px 80px 80px 80px 32px' }}
+                      >
+                        <span className="font-bold text-base" style={{ color: d.position === 1 ? 'var(--f1-red)' : 'inherit' }}>
+                          {d.position}
                         </span>
-                      </div>
-
-                      {/* Neumático + Edad */}
-                      <div className="flex items-center gap-1.5">
-                        <span
-                          className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-black shrink-0"
-                          style={{
-                            background: TYRE_COLORS[compound],
-                            color: compound === 'HARD' || compound === 'MEDIUM' ? '#000' : '#fff',
-                          }}
-                        >
-                          {TYRE_LABELS[compound]}
+                        <span className="text-xs font-bold" style={{ color: teamColor }}>
+                          {d.driverNumber}
                         </span>
-                        <span className="text-xs font-mono font-bold">
-                          {age > 0 ? age : '—'}
-                        </span>
-                      </div>
-
-                      {/* Última vuelta */}
-                      <span className="font-mono text-xs">
-                        {fmtTime(d.lap?.lap_duration ?? null)}
-                      </span>
-
-                      {/* Gap al líder */}
-                      <span className="font-mono text-xs" style={{ color: d.position === 1 ? '#00a550' : 'inherit' }}>
-                        {fmtGap(d.interval?.gap_to_leader ?? null)}
-                      </span>
-
-                      {/* Intervalo */}
-                      <span className="font-mono text-xs" style={{ color: 'var(--f1-muted)' }}>
-                        {d.position === 1 ? '—' : fmtInterval(d.interval?.interval ?? null)}
-                      </span>
-
-                      {/* Sectores */}
-                      <div className="text-xs font-mono" style={{ color: 'var(--f1-muted)' }}>
-                        {d.lap ? (
-                          <span>
-                            {fmtTime(d.lap.duration_sector_1)}<br />
-                            {fmtTime(d.lap.duration_sector_2)}<br />
-                            {fmtTime(d.lap.duration_sector_3)}
+                        <div>
+                          <span className="font-bold">{d.driver.name_acronym}</span>
+                          <span className="text-xs ml-1 hidden lg:inline" style={{ color: 'var(--f1-muted)' }}>
+                            {d.driver.full_name}
                           </span>
-                        ) : '—'}
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-black shrink-0"
+                            style={{ background: TYRE_COLORS[compound], color: compound === 'HARD' || compound === 'MEDIUM' ? '#000' : '#fff' }}
+                          >
+                            {TYRE_LABELS[compound]}
+                          </span>
+                          <span className="text-xs font-mono font-bold">{age > 0 ? age : '—'}</span>
+                        </div>
+                        <span className="font-mono text-xs">{fmtTime(d.lap?.lap_duration ?? null)}</span>
+                        <span className="font-mono text-xs" style={{ color: d.position === 1 ? '#00a550' : 'inherit' }}>
+                          {fmtGap(d.interval?.gap_to_leader ?? null)}
+                        </span>
+                        <span className="font-mono text-xs" style={{ color: 'var(--f1-muted)' }}>
+                          {d.position === 1 ? '—' : fmtInterval(d.interval?.interval ?? null)}
+                        </span>
+                        <div className="text-xs font-mono" style={{ color: 'var(--f1-muted)' }}>
+                          {d.lap ? (
+                            <span>
+                              {fmtTime(d.lap.duration_sector_1)}<br />
+                              {fmtTime(d.lap.duration_sector_2)}<br />
+                              {fmtTime(d.lap.duration_sector_3)}
+                            </span>
+                          ) : '—'}
+                        </div>
+                        <span className="text-xs text-center font-bold" style={{ color: 'var(--f1-muted)' }}>
+                          {d.pitCount > 0 ? d.pitCount : '—'}
+                        </span>
                       </div>
 
-                      {/* Pits */}
-                      <span className="text-xs text-center font-bold" style={{ color: 'var(--f1-muted)' }}>
-                        {d.pitCount > 0 ? d.pitCount : '—'}
-                      </span>
+                      {/* Mobile row */}
+                      <div className="md:hidden flex items-center gap-3 px-4 py-3">
+                        <span className="w-7 text-center font-bold text-sm shrink-0" style={{ color: d.position === 1 ? 'var(--f1-red)' : 'inherit' }}>
+                          {d.position}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-sm">{d.driver.name_acronym}</span>
+                            <span className="text-xs" style={{ color: 'var(--f1-muted)' }}>{d.driver.team_name}</span>
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span
+                              className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-black"
+                              style={{ background: TYRE_COLORS[compound], color: compound === 'HARD' || compound === 'MEDIUM' ? '#000' : '#fff' }}
+                            >
+                              {TYRE_LABELS[compound]}
+                            </span>
+                            <span className="text-xs font-mono" style={{ color: 'var(--f1-muted)' }}>{age > 0 ? `${age}v` : '—'}</span>
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <div className="text-xs font-mono font-bold">{fmtTime(d.lap?.lap_duration ?? null)}</div>
+                          <div className="text-xs font-mono" style={{ color: 'var(--f1-muted)' }}>
+                            {d.position === 1 ? 'Líder' : fmtGap(d.interval?.gap_to_leader ?? null)}
+                          </div>
+                        </div>
+                      </div>
+
                     </div>
                   )
                 })}
@@ -453,10 +479,9 @@ export default function LiveTimingPage() {
           </div>
         </div>
 
-        {/* ── Panel lateral ── */}
+        {/* Panel lateral */}
         <div className="flex flex-col gap-4">
 
-          {/* Clima */}
           {weather && (
             <div className="rounded-xl px-5 py-4" style={{ background: 'var(--f1-gray)' }}>
               <h3 className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--f1-muted)' }}>
@@ -489,7 +514,6 @@ export default function LiveTimingPage() {
             </div>
           )}
 
-          {/* Race Control */}
           {raceControl.length > 0 && (
             <div className="rounded-xl px-5 py-4" style={{ background: 'var(--f1-gray)' }}>
               <h3 className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--f1-muted)' }}>
@@ -515,7 +539,6 @@ export default function LiveTimingPage() {
             </div>
           )}
 
-          {/* Sin sesión activa */}
           {!sessionActive && session && (
             <div className="rounded-xl px-5 py-4" style={{ background: 'var(--f1-gray)' }}>
               <h3 className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: 'var(--f1-muted)' }}>
