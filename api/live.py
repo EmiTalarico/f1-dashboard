@@ -128,6 +128,15 @@ async def start_live_client():
                     await ws.send_str(json.dumps({"protocol": "json", "version": 1}) + "\x1e")
                     await ws.receive()
 
+                    # Pedir estado completo primero
+                    get_all = {
+                        "type": 1,
+                        "invocationId": "0",
+                        "target": "GetAll",
+                        "arguments": [],
+                    }
+                    await ws.send_str(json.dumps(get_all) + "\x1e")
+
                     # Suscribirse a tópicos
                     subscribe = {
                         "type": 1,
