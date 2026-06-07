@@ -122,6 +122,7 @@ async def start_live_client():
 
                     async for msg in ws:
                         if msg.type == aiohttp.WSMsgType.TEXT:
+                            logger.info(f"MSG: {msg.data[:200]}")  # ← agregá esta línea
                             parts = msg.data.split("\x1e")
                             for part in parts:
                                 part = part.strip()
