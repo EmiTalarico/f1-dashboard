@@ -197,22 +197,32 @@ export default function LiveTimingPage() {
 
   const sortedDrivers = liveState
   ? Object.entries(liveState.timing)
-      .filter(([, d]) => d.GapToLeader || d.Position || d.IntervalToPositionAhead)
-      .map(([num, data]) => ({ num, data, tyre: liveState.tyres[num], info: drivers[num] }))
+      .filter(([, d]) => d.GapToLeader !== undefined || d.Position !== undefined || d.IntervalToPositionAhead !== undefined)
+      .map(([num, data], index) => ({ num, data, tyre: liveState.tyres[num], info: drivers[num] }))
       .sort((a, b) => {
-        // Si tienen Position explícita la usamos
         const posA = parseInt(a.data.Position ?? '999')
         const posB = parseInt(b.data.Position ?? '999')
         if (posA !== posB) return posA - posB
 
-        // Sino ordenamos por GapToLeader
         const gapA = a.data.GapToLeader ?? ''
         const gapB = b.data.GapToLeader ?? ''
+
+        // Líder primero (sin gap)
         if (gapA === '' && gapB !== '') return -1
         if (gapB === '' && gapA !== '') return 1
-        if (gapA.startsWith('LAP') || gapA.includes('L')) return 1
-        if (gapB.startsWith('LAP') || gapB.includes('L')) return -1
-        return parseFloat(gapA.replace('+', '')) - parseFloat(gapB.replace('+', ''))
+
+        // Doblados al final
+        if (gapA.includes('L') && !gapB.includes('L')) return 1
+        if (gapB.includes('L') && !gapA.includes('L')) return -1
+
+        // LAP X al final
+        if (gapA.startsWith('LAP') && !gapB.startsWith('LAP')) return 1
+        if (gapB.startsWith('LAP') && !gapA.startsWith('LAP')) return -1
+
+        // Ordenar por gap numérico
+        const numA = parseFloat(gapA.replace('+', '')) || 999
+        const numB = parseFloat(gapB.replace('+', '')) || 999
+        return numA - numB
       })
   : []
 
