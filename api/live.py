@@ -70,6 +70,33 @@ def process_message(topic: str, msg: dict):
             state["race_control"] = state["race_control"][-10:]
             notify_listeners("race_control", state["race_control"])
 
+        elif topic == "DriverList":
+             for number, data in msg.items():
+                 if isinstance(data, dict):
+                      if number not in state["timing"]:
+                          state["timing"][number] = {}
+                      if "Line" in data:
+                          state["timing"][number]["Position"] = str(data["Line"])
+                      if "TeamColour" in data:
+                          state["timing"][number]["TeamColour"] = data["TeamColour"]
+                      if "Tla" in data:
+                          state["timing"][number]["Tla"] = data["Tla"]
+                      if "FullName" in data:
+                          state["timing"][number]["FullName"] = data["FullName"]
+                      if "TeamName" in data:
+                          state["timing"][number]["TeamName"] = data["TeamName"]
+             notify_listeners("timing", state["timing"])
+
+        elif topic == "TimingDataF1":
+            lines = msg.get("Lines", {})
+            for number, data in lines.items():
+                if number not in state["timing"]:
+                    state["timing"][number] = {}
+                if "Position" in data:
+                    state["timing"][number]["Position"] = str(data["Position"])
+                state["timing"][number].update(data)
+            notify_listeners("timing", state["timing"])
+
     except Exception as e:
         logger.error(f"Error procesando {topic}: {e}")
 
@@ -110,9 +137,11 @@ async def start_live_client():
                             "SessionInfo",
                             "SessionData",
                             "TimingData",
+                            "TimingDataF1",
                             "TimingAppData",
                             "WeatherData",
                             "RaceControlMessages",
+                            "DriverList",
                         ]],
                     }
                     await ws.send_str(json.dumps(subscribe) + "\x1e")
