@@ -71,7 +71,6 @@ def process_message(topic: str, msg: dict):
             notify_listeners("race_control", state["race_control"])
 
         elif topic == "DriverList":
-             logger.info(f"DriverList: {json.dumps(msg)[:500]}")
              for number, data in msg.items():
                  if isinstance(data, dict):
                       if number not in state["timing"]:

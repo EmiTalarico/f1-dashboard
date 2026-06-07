@@ -196,16 +196,25 @@ export default function LiveTimingPage() {
   }, [])
 
   const sortedDrivers = liveState
-    ? Object.entries(liveState.timing)
-        .filter(([, d]) => d.Position)
-        .sort((a, b) => parseInt(a[1].Position!) - parseInt(b[1].Position!))
-        .map(([num, data]) => ({
-          num,
-          data,
-          tyre: liveState.tyres[num],
-          info: drivers[num],
-        }))
-    : []
+  ? Object.entries(liveState.timing)
+      .filter(([, d]) => d.GapToLeader || d.Position || d.IntervalToPositionAhead)
+      .map(([num, data]) => ({ num, data, tyre: liveState.tyres[num], info: drivers[num] }))
+      .sort((a, b) => {
+        // Si tienen Position explícita la usamos
+        const posA = parseInt(a.data.Position ?? '999')
+        const posB = parseInt(b.data.Position ?? '999')
+        if (posA !== posB) return posA - posB
+
+        // Sino ordenamos por GapToLeader
+        const gapA = a.data.GapToLeader ?? ''
+        const gapB = b.data.GapToLeader ?? ''
+        if (gapA === '' && gapB !== '') return -1
+        if (gapB === '' && gapA !== '') return 1
+        if (gapA.startsWith('LAP') || gapA.includes('L')) return 1
+        if (gapB.startsWith('LAP') || gapB.includes('L')) return -1
+        return parseFloat(gapA.replace('+', '')) - parseFloat(gapB.replace('+', ''))
+      })
+  : []
 
   function getCurrentTyre(tyre: TyreData | undefined) {
     if (!tyre?.Stints) return { compound: 'UNKNOWN', laps: 0, isNew: false }
@@ -302,7 +311,7 @@ export default function LiveTimingPage() {
               <div className="divide-y" style={{ borderColor: 'var(--f1-light-gray)' }}>
                 {sortedDrivers.map(({ num, data, tyre, info }) => {
                   const { compound, laps, isNew } = getCurrentTyre(tyre)
-                  const pos = parseInt(data.Position ?? '0')
+                  const pos = data.Position ? parseInt(data.Position) : (index + 1)
                   const teamColor = info?.team_colour ? `#${info.team_colour}` : '#888'
                   const sectors = data.Sectors ?? {}
                   const lapColor = data.LastLapTime?.OverallFastest ? '#a855f7'
