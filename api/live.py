@@ -122,7 +122,6 @@ async def start_live_client():
 
                     async for msg in ws:
                         if msg.type == aiohttp.WSMsgType.TEXT:
-                            logger.info(f"MSG: {msg.data[:200]}")  # ← agregá esta línea
                             parts = msg.data.split("\x1e")
                             for part in parts:
                                 part = part.strip()
@@ -133,10 +132,14 @@ async def start_live_client():
                                     if data.get("type") == 6:
                                         continue
                                     if data.get("type") == 1:
-                                        topic = data.get("target", "")
+                                        target = data.get("target", "")
                                         args = data.get("arguments", [])
-                                        if args:
-                                            process_message(topic, args[0])
+                                        if target == "feed" and len(args) >= 2:
+                                            topic = args[0]
+                                            payload = args[1]
+                                            process_message(topic, payload)
+                                        elif target and args:
+                                            process_message(target, args[0])
                                 except Exception as e:
                                     logger.error(f"Error parseando: {e}")
                         elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
