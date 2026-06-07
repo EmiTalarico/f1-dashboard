@@ -309,7 +309,7 @@ export default function LiveTimingPage() {
               </div>
             ) : (
               <div className="divide-y" style={{ borderColor: 'var(--f1-light-gray)' }}>
-                {sortedDrivers.map(({ num, data, tyre, info }) => {
+                {sortedDrivers.map(({ num, data, tyre, info }, index) => {
                   const { compound, laps, isNew } = getCurrentTyre(tyre)
                   const pos = data.Position ? parseInt(data.Position) : (index + 1)
                   const teamColor = info?.team_colour ? `#${info.team_colour}` : '#888'
