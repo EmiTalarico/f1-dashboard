@@ -3,12 +3,20 @@ import json
 import os
 import fastf1
 import pandas as pd
-import aiohttp
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from live import start_live_client, get_full_state, listeners
 
-app = FastAPI(title="F1 Telemetry API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    task = asyncio.create_task(start_live_client())
+    yield
+    task.cancel()
+
+
+app = FastAPI(title="F1 Telemetry API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -21,12 +29,6 @@ os.makedirs("cache", exist_ok=True)
 fastf1.Cache.enable_cache("cache")
 
 
-@app.on_event("startup")
-async def startup():
-    """Inicia el cliente de live timing al arrancar el servidor."""
-    asyncio.create_task(start_live_client())
-
-
 @app.get("/")
 def root():
     return {"status": "F1 Telemetry API running"}
@@ -34,22 +36,18 @@ def root():
 
 @app.get("/live/state")
 def live_state():
-    """Devuelve el estado actual del live timing (REST fallback)."""
     return get_full_state()
 
 
 @app.websocket("/ws/live")
 async def websocket_live(websocket: WebSocket):
-    """WebSocket endpoint — envía actualizaciones en tiempo real."""
     await websocket.accept()
 
-    # Enviar estado actual al conectarse
     await websocket.send_text(json.dumps({
         "topic": "snapshot",
         "data": get_full_state()
     }))
 
-    # Registrar como listener
     queue = asyncio.Queue()
     listeners.append(queue)
 
@@ -59,7 +57,6 @@ async def websocket_live(websocket: WebSocket):
                 message = await asyncio.wait_for(queue.get(), timeout=30)
                 await websocket.send_text(message)
             except asyncio.TimeoutError:
-                # Ping para mantener conexión viva
                 await websocket.send_text(json.dumps({"topic": "ping"}))
     except WebSocketDisconnect:
         pass
