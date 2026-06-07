@@ -2,7 +2,6 @@ import json
 import asyncio
 import logging
 import aiohttp
-import websockets
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -79,68 +78,69 @@ async def start_live_client():
     while True:
         try:
             logger.info("Negociando conexión con F1...")
-            negotiate_url = "https://livetiming.formula1.com/signalrcore/negotiate?negotiateVersion=1"
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    negotiate_url,
+
+            async with aiohttp.ClientSession() as http:
+                # Negotiate y connect en la misma sesión para minimizar latencia
+                async with http.post(
+                    "https://livetiming.formula1.com/signalrcore/negotiate?negotiateVersion=1",
                     headers={"User-Agent": "BestHTTP"},
                 ) as r:
                     negotiate = await r.json()
 
-            token = negotiate["connectionToken"]
-            ws_url = f"wss://livetiming.formula1.com/signalrcore?id={token}"
+                token = negotiate["connectionToken"]
+                ws_url = f"wss://livetiming.formula1.com/signalrcore?id={token}"
 
-            logger.info("Conectando al feed de F1...")
-            async with websockets.connect(
-                ws_url,
-                additional_headers={"User-Agent": "BestHTTP"},
-                ping_interval=20,
-                ping_timeout=10,
-            ) as ws:
-                # Handshake
-                await ws.send(json.dumps({"protocol": "json", "version": 1}) + "\x1e")
-                await ws.recv()
+                logger.info("Conectando al feed de F1...")
+                async with http.ws_connect(
+                    ws_url,
+                    headers={"User-Agent": "BestHTTP"},
+                    heartbeat=20,
+                    timeout=aiohttp.ClientTimeout(total=None),
+                ) as ws:
+                    # Handshake
+                    await ws.send_str(json.dumps({"protocol": "json", "version": 1}) + "\x1e")
+                    await ws.receive()
 
-                # Suscribirse a tópicos
-                subscribe = {
-                    "type": 1,
-                    "invocationId": "0",
-                    "target": "Subscribe",
-                    "arguments": [[
-                        "SessionInfo",
-                        "SessionData",
-                        "TimingData",
-                        "TimingAppData",
-                        "WeatherData",
-                        "RaceControlMessages",
-                    ]],
-                }
-                await ws.send(json.dumps(subscribe) + "\x1e")
+                    # Suscribirse a tópicos
+                    subscribe = {
+                        "type": 1,
+                        "invocationId": "0",
+                        "target": "Subscribe",
+                        "arguments": [[
+                            "SessionInfo",
+                            "SessionData",
+                            "TimingData",
+                            "TimingAppData",
+                            "WeatherData",
+                            "RaceControlMessages",
+                        ]],
+                    }
+                    await ws.send_str(json.dumps(subscribe) + "\x1e")
 
-                state["connected"] = True
-                logger.info("✅ Conectado al feed de F1 — esperando sesión activa")
+                    state["connected"] = True
+                    logger.info("✅ Conectado al feed de F1 — esperando sesión activa")
 
-                async for raw in ws:
-                    parts = raw.split("\x1e")
-                    for part in parts:
-                        part = part.strip()
-                        if not part:
-                            continue
-                        try:
-                            data = json.loads(part)
-                            msg_type = data.get("type")
-
-                            if msg_type == 6:
-                                continue
-
-                            if msg_type == 1:
-                                topic = data.get("target", "")
-                                args = data.get("arguments", [])
-                                if args:
-                                    process_message(topic, args[0])
-
-                        except Exception as e:
-                            logger.error(f"Error parseando mensaje: {e}")
+                    async for msg in ws:
+                        if msg.type == aiohttp.WSMsgType.TEXT:
+                            parts = msg.data.split("\x1e")
+                            for part in parts:
+                                part = part.strip()
+                                if not part:
+                                    continue
+                                try:
+                                    data = json.loads(part)
+                                    if data.get("type") == 6:
+                                        continue
+                                    if data.get("type") == 1:
+                                        topic = data.get("target", "")
+                                        args = data.get("arguments", [])
+                                        if args:
+                                            process_message(topic, args[0])
+                                except Exception as e:
+                                    logger.error(f"Error parseando: {e}")
+                        elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+                            logger.warning(f"WebSocket cerrado: {msg.type}")
+                            break
 
         except Exception as e:
             logger.error(f"Desconectado: {e}")
