@@ -95,7 +95,7 @@ export default function TelemetriaPage() {
     setLoadingTelemetry(true)
     setTelemetry(null)
 
-    fetch(`${API}/telemetry/${year}/${round}/${selectedDriver}`)
+    fetch(`${API}/telemetry/${year}/${round}/${selectedDriver}?session=${session}`)
       .then(r => r.json())
       .then(data => {
         if (!data.detail) setTelemetry(data)

@@ -101,9 +101,9 @@ def get_session_results(year: int, round: int, session: str):
 
 
 @app.get("/telemetry/{year}/{round}/{driver}")
-def get_driver_telemetry(year: int, round: int, driver: str):
+def get_driver_telemetry(year: int, round: int, driver: str, session: str = "R"):
     try:
-        s = fastf1.get_session(year, round, "R")
+        s = fastf1.get_session(year, round, session)
         s.load(telemetry=True, weather=False, messages=False)
 
         lap = s.laps.pick_drivers(driver).pick_fastest()
