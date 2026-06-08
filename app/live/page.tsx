@@ -25,6 +25,10 @@ type DriverTiming = {
   Stopped?: boolean
   Retired?: boolean
   Status?: number
+  Tla?: string
+  FullName?: string
+  TeamName?: string
+  TeamColour?: string
 }
 
 type TyreData = {
@@ -56,6 +60,12 @@ type RaceControlMessage = {
   Flag?: string
   Category?: string
   Utc?: string
+  Lap?: number
+}
+
+type TrackStatus = {
+  Status?: string
+  Message?: string
 }
 
 type LiveState = {
@@ -66,6 +76,8 @@ type LiveState = {
   weather: Weather
   race_control: RaceControlMessage[]
   session_data: any
+  track_status: TrackStatus
+  timing_stats: any
 }
 
 const TYRE_COLORS: Record<string, string> = {
@@ -80,7 +92,7 @@ const TYRE_LABELS: Record<string, string> = {
 const FLAG_COLORS: Record<string, string> = {
   GREEN: '#00a550', YELLOW: '#ffd700', RED: '#e10600',
   SAFETY_CAR: '#ffd700', VIRTUAL_SAFETY_CAR: '#ffd700',
-  CHEQUERED: '#ffffff', CLEAR: '#00a550',
+  CHEQUERED: '#ffffff', CLEAR: '#00a550', BLUE: '#0057b8',
 }
 
 const SESSION_LABELS: Record<string, string> = {
@@ -88,6 +100,17 @@ const SESSION_LABELS: Record<string, string> = {
   'Practice 3': '🟢 Práctica 3', 'Qualifying': '🟡 Clasificación',
   'Sprint Qualifying': '🟡 Sprint Qualifying', 'Sprint Shootout': '🟡 Sprint Shootout',
   'Sprint': '🟠 Sprint', 'Race': '🏁 Carrera',
+}
+
+// Status de pista: 1=verde, 2=amarillo, 3=bandera verde, 4=SC, 5=roja, 6=VSC, 7=VSC fin
+const TRACK_STATUS_INFO: Record<string, { label: string; color: string; emoji: string }> = {
+  '1': { label: 'Pista despejada', color: '#00a550', emoji: '🟢' },
+  '2': { label: 'Bandera amarilla', color: '#ffd700', emoji: '🟡' },
+  '3': { label: 'Bandera verde', color: '#00a550', emoji: '🟢' },
+  '4': { label: 'Safety Car', color: '#ffd700', emoji: '🚗' },
+  '5': { label: 'Bandera roja', color: '#e10600', emoji: '🔴' },
+  '6': { label: 'Virtual SC', color: '#ffd700', emoji: '⚠️' },
+  '7': { label: 'Virtual SC fin', color: '#ffd700', emoji: '⚠️' },
 }
 
 const SEGMENT_COLORS: Record<number, string> = {
@@ -99,24 +122,16 @@ function SectorTime({ sector }: {
   sector?: { Value?: string; OverallFastest?: boolean; PersonalFastest?: boolean; Segments?: { [k: string]: { Status: number } } }
 }) {
   if (!sector) return <div className="text-xs font-mono" style={{ color: 'var(--f1-muted)' }}>—</div>
-
-  const color = sector.OverallFastest ? '#a855f7'
-    : sector.PersonalFastest ? '#00a550'
-    : 'inherit'
-
+  const color = sector.OverallFastest ? '#a855f7' : sector.PersonalFastest ? '#00a550' : 'inherit'
   const segments = sector.Segments ? Object.values(sector.Segments) : []
-
   return (
     <div>
       <div className="text-xs font-mono font-bold" style={{ color }}>{sector.Value || '—'}</div>
       {segments.length > 0 && (
         <div className="flex gap-0.5 mt-0.5">
           {segments.map((seg, i) => (
-            <div
-              key={i}
-              className="h-1 rounded-sm flex-1"
-              style={{ background: SEGMENT_COLORS[seg.Status] ?? '#333', minWidth: 3 }}
-            />
+            <div key={i} className="h-1 rounded-sm flex-1"
+              style={{ background: SEGMENT_COLORS[seg.Status] ?? '#333', minWidth: 3 }} />
           ))}
         </div>
       )}
@@ -134,9 +149,7 @@ export default function LiveTimingPage() {
     function connect() {
       const ws = new WebSocket(WS_URL)
       wsRef.current = ws
-
       ws.onopen = () => setConnected(true)
-
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data)
@@ -153,21 +166,17 @@ export default function LiveTimingPage() {
               if (msg.topic === 'race_control') next.race_control = msg.data
               if (msg.topic === 'session') next.session = msg.data
               if (msg.topic === 'session_data') next.session_data = msg.data
+              if (msg.topic === 'track_status') next.track_status = msg.data
+              if (msg.topic === 'timing_stats') next.timing_stats = msg.data
               return next
             })
           }
           setLastUpdate(new Date())
         } catch { }
       }
-
-      ws.onclose = () => {
-        setConnected(false)
-        setTimeout(connect, 5000)
-      }
-
+      ws.onclose = () => { setConnected(false); setTimeout(connect, 5000) }
       ws.onerror = () => ws.close()
     }
-
     connect()
     return () => wsRef.current?.close()
   }, [])
@@ -180,17 +189,14 @@ export default function LiveTimingPage() {
           const posA = parseInt(a.data.Position ?? '999')
           const posB = parseInt(b.data.Position ?? '999')
           if (posA !== posB) return posA - posB
-
           const gapA = a.data.GapToLeader ?? ''
           const gapB = b.data.GapToLeader ?? ''
-
           if (gapA === '' && gapB !== '') return -1
           if (gapB === '' && gapA !== '') return 1
           if (gapA.includes('L') && !gapB.includes('L')) return 1
           if (gapB.includes('L') && !gapA.includes('L')) return -1
           if (gapA.startsWith('LAP') && !gapB.startsWith('LAP')) return 1
           if (gapB.startsWith('LAP') && !gapA.startsWith('LAP')) return -1
-
           const numA = parseFloat(gapA.replace('+', '')) || 999
           const numB = parseFloat(gapB.replace('+', '')) || 999
           return numA - numB
@@ -201,11 +207,7 @@ export default function LiveTimingPage() {
     if (!tyre?.Stints) return { compound: 'UNKNOWN', laps: 0, isNew: false }
     const stints = Object.values(tyre.Stints)
     const last = stints[stints.length - 1]
-    return {
-      compound: last?.Compound ?? 'UNKNOWN',
-      laps: last?.TotalLaps ?? 0,
-      isNew: last?.New === 'true',
-    }
+    return { compound: last?.Compound ?? 'UNKNOWN', laps: last?.TotalLaps ?? 0, isNew: last?.New === 'true' }
   }
 
   const sessionName = liveState?.session?.Name ?? ''
@@ -213,25 +215,30 @@ export default function LiveTimingPage() {
   const meetingName = liveState?.session?.Meeting?.Name ?? ''
   const hasData = sortedDrivers.length > 0
   const weather = liveState?.weather
+  const trackStatusCode = liveState?.track_status?.Status ?? '1'
+  const trackStatusInfo = TRACK_STATUS_INFO[trackStatusCode]
+  const lapCount = liveState?.session_data?.LapCount
+  const totalLaps = lapCount?.TotalLaps
+  const currentLap = lapCount?.CurrentLap
+  const clock = liveState?.session_data?.Clock
+  const isRace = sessionName === 'Race' || sessionName === 'Sprint'
 
   return (
     <main className="min-h-screen px-4 py-8 max-w-7xl mx-auto">
 
       {/* Header */}
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-4">
         <div>
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-3xl font-bold">
               <span style={{ color: 'var(--f1-red)' }}>🔴 Live</span> Timing
             </h1>
-            <span
-              className="text-sm font-bold px-3 py-1 rounded-full"
+            <span className="text-sm font-bold px-3 py-1 rounded-full"
               style={{
                 background: connected ? '#00a55022' : '#e1060022',
                 color: connected ? '#00a550' : '#e10600',
                 border: `1px solid ${connected ? '#00a550' : '#e10600'}`,
-              }}
-            >
+              }}>
               {connected ? '⬤ Conectado' : '◯ Reconectando...'}
             </span>
           </div>
@@ -240,18 +247,43 @@ export default function LiveTimingPage() {
             <div className="flex items-center gap-3 mt-2 flex-wrap">
               <p className="text-sm" style={{ color: 'var(--f1-muted)' }}>📍 {meetingName}</p>
               {sessionLabel && (
-                <span className="text-sm font-bold px-3 py-0.5 rounded-full" style={{ background: 'var(--f1-light-gray)' }}>
+                <span className="text-sm font-bold px-3 py-0.5 rounded-full"
+                  style={{ background: 'var(--f1-light-gray)' }}>
                   {sessionLabel}
+                </span>
+              )}
+              {/* Vuelta actual en carrera */}
+              {isRace && currentLap && totalLaps && (
+                <span className="text-sm font-bold px-3 py-0.5 rounded-full"
+                  style={{ background: 'var(--f1-red)', color: '#fff' }}>
+                  Vuelta {currentLap} / {totalLaps}
+                </span>
+              )}
+              {/* Tiempo restante en clasificación */}
+              {!isRace && clock?.Remaining && (
+                <span className="text-sm font-bold px-3 py-0.5 rounded-full"
+                  style={{ background: '#ffd700', color: '#000' }}>
+                  ⏱ {clock.Remaining}
                 </span>
               )}
             </div>
           )}
         </div>
-        {lastUpdate && (
-          <p className="text-xs" style={{ color: 'var(--f1-muted)' }}>
-            🔄 {lastUpdate.toLocaleTimeString('es-AR')}
-          </p>
-        )}
+
+        <div className="flex flex-col items-end gap-1">
+          {/* Track status */}
+          {hasData && trackStatusInfo && (
+            <span className="text-sm font-bold px-3 py-1 rounded-full"
+              style={{ background: trackStatusInfo.color + '22', color: trackStatusInfo.color, border: `1px solid ${trackStatusInfo.color}` }}>
+              {trackStatusInfo.emoji} {trackStatusInfo.label}
+            </span>
+          )}
+          {lastUpdate && (
+            <p className="text-xs" style={{ color: 'var(--f1-muted)' }}>
+              🔄 {lastUpdate.toLocaleTimeString('es-AR')}
+            </p>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
@@ -259,27 +291,13 @@ export default function LiveTimingPage() {
         {/* Tabla */}
         <div className="xl:col-span-3">
           <div className="rounded-xl overflow-x-auto" style={{ background: 'var(--f1-gray)' }}>
-
-            {/* Cabecera desktop */}
             <div
               className="hidden md:grid gap-2 px-4 py-2 text-xs font-semibold uppercase"
-              style={{
-                color: 'var(--f1-muted)',
-                borderBottom: '1px solid var(--f1-light-gray)',
-                gridTemplateColumns: '36px 36px 150px 80px 90px 90px 100px 80px 80px 80px 32px',
-              }}
+              style={{ color: 'var(--f1-muted)', borderBottom: '1px solid var(--f1-light-gray)', gridTemplateColumns: '36px 36px 150px 80px 90px 90px 110px 80px 80px 80px 32px' }}
             >
-              <span>Pos</span>
-              <span>#</span>
-              <span>Piloto</span>
-              <span>Neum.</span>
-              <span>Última V.</span>
-              <span>Mejor V.</span>
-              <span>Gap / Int.</span>
-              <span>S1</span>
-              <span>S2</span>
-              <span>S3</span>
-              <span>Pit</span>
+              <span>Pos</span><span>#</span><span>Piloto</span><span>Neum.</span>
+              <span>Última V.</span><span>Mejor V.</span><span>Gap / Int.</span>
+              <span>S1</span><span>S2</span><span>S3</span><span>Pit</span>
             </div>
 
             {!hasData ? (
@@ -293,55 +311,38 @@ export default function LiveTimingPage() {
                 {sortedDrivers.map(({ num, data, tyre, info }, index) => {
                   const { compound, laps, isNew } = getCurrentTyre(tyre)
                   const pos = data.Position ? parseInt(data.Position) : (index + 1)
-                  const teamColor = info?.teamColor ? `#${info.teamColor}` : '#888'
+                  const teamColor = info?.teamColor ? `#${info.teamColor}` : (data.TeamColour ? `#${data.TeamColour}` : '#888')
                   const sectors = data.Sectors ?? {}
-                  const lapColor = data.LastLapTime?.OverallFastest ? '#a855f7'
-                    : data.LastLapTime?.PersonalFastest ? '#00a550'
-                    : 'inherit'
-
-                  const statusLabel = data.Retired ? '❌ RET'
-                    : data.InPit ? '🔧 PIT'
-                    : data.PitOut ? '📤 OUT'
-                    : data.Stopped ? '🔴 STP'
-                    : null
-
+                  const lapColor = data.LastLapTime?.OverallFastest ? '#a855f7' : data.LastLapTime?.PersonalFastest ? '#00a550' : 'inherit'
+                  const isRetired = data.Retired
+                  const statusLabel = isRetired ? '❌ RET' : data.InPit ? '🔧 PIT' : data.PitOut ? '📤 OUT' : data.Stopped ? '🔴 STP' : null
                   const gap = pos === 1 ? 'Líder' : (data.GapToLeader ?? '—')
                   const interval = data.IntervalToPositionAhead?.Value
+                  const acronym = info?.acronym ?? data.Tla ?? num
+                  const team = info?.team ?? data.TeamName ?? '—'
+                  const flag = info?.flag ?? ''
 
                   return (
-                    <div key={num}>
+                    <div key={num} style={{ opacity: isRetired ? 0.5 : 1 }}>
                       {/* Desktop */}
                       <div
                         className="hidden md:grid items-center gap-2 px-4 py-2 text-sm"
                         style={{
-                          gridTemplateColumns: '36px 36px 150px 80px 90px 90px 100px 80px 80px 80px 32px',
+                          gridTemplateColumns: '36px 36px 150px 80px 90px 90px 110px 80px 80px 80px 32px',
                           borderLeft: `3px solid ${teamColor}`,
-                          background: statusLabel ? '#ffffff08' : 'transparent',
+                          background: statusLabel && !isRetired ? '#ffffff08' : 'transparent',
                         }}
                       >
-                        {/* Posición */}
-                        <span className="font-bold" style={{ color: pos === 1 ? 'var(--f1-red)' : 'inherit' }}>
-                          {pos}
-                        </span>
-
-                        {/* Número */}
+                        <span className="font-bold text-base" style={{ color: pos === 1 ? 'var(--f1-red)' : 'inherit' }}>{pos}</span>
                         <span className="text-xs font-bold" style={{ color: teamColor }}>{num}</span>
-
-                        {/* Piloto */}
                         <div className="min-w-0">
                           <div className="flex items-center gap-1">
-                            {info?.flag && <span className="text-sm">{info.flag}</span>}
-                            <span className="font-bold text-sm truncate">
-                              {info?.acronym ?? num}
-                            </span>
+                            {flag && <span className="text-sm">{flag}</span>}
+                            <span className="font-bold text-sm truncate">{acronym}</span>
                             {statusLabel && <span className="text-xs ml-1" style={{ color: 'var(--f1-muted)' }}>{statusLabel}</span>}
                           </div>
-                          <div className="text-xs truncate" style={{ color: 'var(--f1-muted)' }}>
-                            {info?.team ?? '—'}
-                          </div>
+                          <div className="text-xs truncate" style={{ color: 'var(--f1-muted)' }}>{team}</div>
                         </div>
-
-                        {/* Neumático */}
                         <div className="flex items-center gap-1">
                           <span
                             className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-black shrink-0"
@@ -350,85 +351,49 @@ export default function LiveTimingPage() {
                               color: compound === 'HARD' || compound === 'MEDIUM' ? '#000' : '#fff',
                               border: isNew ? '2px solid white' : 'none',
                             }}
-                          >
-                            {TYRE_LABELS[compound]}
-                          </span>
+                          >{TYRE_LABELS[compound]}</span>
                           <span className="text-xs font-mono">{laps > 0 ? laps : '—'}</span>
                         </div>
-
-                        {/* Última vuelta */}
-                        <span className="font-mono text-xs" style={{ color: lapColor }}>
-                          {data.LastLapTime?.Value ?? '—'}
-                        </span>
-
-                        {/* Mejor vuelta */}
-                        <span className="font-mono text-xs" style={{ color: 'var(--f1-muted)' }}>
-                          {data.BestLapTime?.Value ?? '—'}
-                        </span>
-
-                        {/* Gap + Intervalo */}
+                        <span className="font-mono text-xs" style={{ color: lapColor }}>{data.LastLapTime?.Value ?? '—'}</span>
+                        <span className="font-mono text-xs" style={{ color: 'var(--f1-muted)' }}>{data.BestLapTime?.Value ?? '—'}</span>
                         <div>
-                          <div className="font-mono text-xs" style={{ color: pos === 1 ? '#00a550' : 'inherit' }}>
-                            {gap}
-                          </div>
+                          <div className="font-mono text-xs" style={{ color: pos === 1 ? '#00a550' : 'inherit' }}>{gap}</div>
                           {interval && pos !== 1 && (
-                            <div className="font-mono text-xs" style={{ color: '#ffd700' }}>
-                              ↑ {interval}
-                            </div>
+                            <div className="font-mono text-xs" style={{ color: '#ffd700' }}>↑ {interval}</div>
                           )}
                         </div>
-
-                        {/* Sectores */}
                         <SectorTime sector={sectors['0']} />
                         <SectorTime sector={sectors['1']} />
                         <SectorTime sector={sectors['2']} />
-
-                        {/* Pits */}
                         <span className="text-xs text-center font-bold" style={{ color: 'var(--f1-muted)' }}>
                           {data.NumberOfPitStops ? data.NumberOfPitStops : '—'}
                         </span>
                       </div>
 
                       {/* Mobile */}
-                      <div
-                        className="md:hidden flex items-center gap-3 px-4 py-3"
-                        style={{ borderLeft: `3px solid ${teamColor}` }}
-                      >
-                        <span className="w-7 text-center font-bold text-sm shrink-0" style={{ color: pos === 1 ? 'var(--f1-red)' : 'inherit' }}>
-                          {pos}
-                        </span>
+                      <div className="md:hidden flex items-center gap-3 px-4 py-3"
+                        style={{ borderLeft: `3px solid ${teamColor}` }}>
+                        <span className="w-7 text-center font-bold text-sm shrink-0"
+                          style={{ color: pos === 1 ? 'var(--f1-red)' : 'inherit' }}>{pos}</span>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            {info?.flag && <span>{info.flag}</span>}
-                            <span className="font-bold text-sm">{info?.acronym ?? num}</span>
+                            {flag && <span>{flag}</span>}
+                            <span className="font-bold text-sm">{acronym}</span>
                             {statusLabel && <span className="text-xs" style={{ color: 'var(--f1-muted)' }}>{statusLabel}</span>}
                           </div>
                           <div className="flex items-center gap-2 mt-0.5">
-                            <span
-                              className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-black"
-                              style={{
-                                background: TYRE_COLORS[compound],
-                                color: compound === 'HARD' || compound === 'MEDIUM' ? '#000' : '#fff',
-                              }}
-                            >
+                            <span className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-black"
+                              style={{ background: TYRE_COLORS[compound], color: compound === 'HARD' || compound === 'MEDIUM' ? '#000' : '#fff' }}>
                               {TYRE_LABELS[compound]}
                             </span>
-                            <span className="text-xs font-mono" style={{ color: 'var(--f1-muted)' }}>
-                              {laps > 0 ? `${laps}v` : '—'}
-                            </span>
+                            <span className="text-xs font-mono" style={{ color: 'var(--f1-muted)' }}>{laps > 0 ? `${laps}v` : '—'}</span>
                           </div>
                         </div>
                         <div className="text-right shrink-0">
-                          <div className="text-xs font-mono font-bold" style={{ color: lapColor }}>
-                            {data.LastLapTime?.Value ?? '—'}
-                          </div>
-                          <div className="text-xs font-mono" style={{ color: 'var(--f1-muted)' }}>
-                            {gap}
-                          </div>
+                          <div className="text-xs font-mono font-bold" style={{ color: lapColor }}>{data.LastLapTime?.Value ?? '—'}</div>
+                          <div className="text-xs font-mono" style={{ color: 'var(--f1-muted)' }}>{gap}</div>
                           {interval && pos !== 1 && (
-                            <div className="text-xs font-mono" style={{ color: '#ffd700' }}>
-                              ↑ {interval}
-                            </div>
+                            <div className="text-xs font-mono" style={{ color: '#ffd700' }}>↑ {interval}</div>
                           )}
                         </div>
                       </div>
@@ -443,28 +408,15 @@ export default function LiveTimingPage() {
         {/* Panel lateral */}
         <div className="flex flex-col gap-4">
 
+          {/* Clima */}
           {weather && Object.keys(weather).length > 0 && (
             <div className="rounded-xl px-5 py-4" style={{ background: 'var(--f1-gray)' }}>
-              <h3 className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--f1-muted)' }}>
-                🌤 Condiciones
-              </h3>
+              <h3 className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--f1-muted)' }}>🌤 Condiciones</h3>
               <div className="grid grid-cols-2 gap-2 text-sm">
-                <div>
-                  <p className="text-xs" style={{ color: 'var(--f1-muted)' }}>Aire</p>
-                  <p className="font-bold">{weather.AirTemp ?? '—'}°C</p>
-                </div>
-                <div>
-                  <p className="text-xs" style={{ color: 'var(--f1-muted)' }}>Pista</p>
-                  <p className="font-bold">{weather.TrackTemp ?? '—'}°C</p>
-                </div>
-                <div>
-                  <p className="text-xs" style={{ color: 'var(--f1-muted)' }}>Humedad</p>
-                  <p className="font-bold">{weather.Humidity ?? '—'}%</p>
-                </div>
-                <div>
-                  <p className="text-xs" style={{ color: 'var(--f1-muted)' }}>Viento</p>
-                  <p className="font-bold">{weather.WindSpeed ?? '—'} km/h</p>
-                </div>
+                <div><p className="text-xs" style={{ color: 'var(--f1-muted)' }}>Aire</p><p className="font-bold">{weather.AirTemp ?? '—'}°C</p></div>
+                <div><p className="text-xs" style={{ color: 'var(--f1-muted)' }}>Pista</p><p className="font-bold">{weather.TrackTemp ?? '—'}°C</p></div>
+                <div><p className="text-xs" style={{ color: 'var(--f1-muted)' }}>Humedad</p><p className="font-bold">{weather.Humidity ?? '—'}%</p></div>
+                <div><p className="text-xs" style={{ color: 'var(--f1-muted)' }}>Viento</p><p className="font-bold">{weather.WindSpeed ?? '—'} km/h</p></div>
                 <div className="col-span-2">
                   <p className="text-xs" style={{ color: 'var(--f1-muted)' }}>Lluvia</p>
                   <p className="font-bold" style={{ color: weather.Rainfall === '1' ? '#60a5fa' : 'inherit' }}>
@@ -475,26 +427,18 @@ export default function LiveTimingPage() {
             </div>
           )}
 
+          {/* Race Control */}
           {liveState?.race_control && liveState.race_control.length > 0 && (
             <div className="rounded-xl px-5 py-4" style={{ background: 'var(--f1-gray)' }}>
-              <h3 className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--f1-muted)' }}>
-                📻 Race Control
-              </h3>
+              <h3 className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--f1-muted)' }}>📻 Race Control</h3>
               <div className="flex flex-col gap-2">
-                {liveState.race_control.slice(0, 5).map((msg, i) => (
-                  <div
-                    key={i}
-                    className="text-xs px-3 py-2 rounded-lg"
-                    style={{
-                      background: 'var(--f1-light-gray)',
-                      borderLeft: `3px solid ${FLAG_COLORS[msg.Flag ?? ''] ?? '#888'}`,
-                    }}
-                  >
-                    {msg.Flag && (
-                      <p className="font-semibold mb-0.5" style={{ color: FLAG_COLORS[msg.Flag] ?? '#fff' }}>
-                        {msg.Flag}
-                      </p>
-                    )}
+                {[...liveState.race_control].reverse().slice(0, 8).map((msg, i) => (
+                  <div key={i} className="text-xs px-3 py-2 rounded-lg"
+                    style={{ background: 'var(--f1-light-gray)', borderLeft: `3px solid ${FLAG_COLORS[msg.Flag ?? ''] ?? '#888'}` }}>
+                    <div className="flex items-center gap-2 mb-0.5">
+                      {msg.Flag && <span className="font-semibold" style={{ color: FLAG_COLORS[msg.Flag] ?? '#fff' }}>{msg.Flag}</span>}
+                      {msg.Lap && <span style={{ color: 'var(--f1-muted)' }}>Vuelta {msg.Lap}</span>}
+                    </div>
                     <p style={{ color: 'var(--f1-muted)' }}>{msg.Message}</p>
                   </div>
                 ))}
@@ -504,9 +448,7 @@ export default function LiveTimingPage() {
 
           {!hasData && (
             <div className="rounded-xl px-5 py-4" style={{ background: 'var(--f1-gray)' }}>
-              <h3 className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: 'var(--f1-muted)' }}>
-                Info
-              </h3>
+              <h3 className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: 'var(--f1-muted)' }}>Info</h3>
               <p className="text-sm" style={{ color: 'var(--f1-muted)' }}>
                 La página se actualiza automáticamente cuando empieza una sesión. No hace falta recargar.
               </p>
