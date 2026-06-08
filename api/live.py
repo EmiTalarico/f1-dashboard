@@ -47,7 +47,25 @@ def process_message(topic: str, msg: dict):
             for number, data in lines.items():
                 if number not in state["timing"]:
                     state["timing"][number] = {}
+                # Guardar posición si viene en este mensaje
+                if "Line" in data:
+                    state["timing"][number]["Position"] = str(data["Line"])
                 state["timing"][number].update(data)
+            notify_listeners("timing", state["timing"])
+
+        elif topic == "TimingDataF1":
+            lines = msg.get("Lines", {})
+            for number, data in lines.items():
+                if number not in state["timing"]:
+                    state["timing"][number] = {}
+                # TimingDataF1 es la fuente más confiable de posiciones
+                if "Line" in data:
+                    state["timing"][number]["Position"] = str(data["Line"])
+                if "Position" in data:
+                    state["timing"][number]["Position"] = str(data["Position"])
+                for k, v in data.items():
+                    if k != "Line":
+                        state["timing"][number][k] = v
             notify_listeners("timing", state["timing"])
 
         elif topic == "TimingAppData":
@@ -71,30 +89,20 @@ def process_message(topic: str, msg: dict):
             notify_listeners("race_control", state["race_control"])
 
         elif topic == "DriverList":
-             for number, data in msg.items():
-                 if isinstance(data, dict):
-                      if number not in state["timing"]:
-                          state["timing"][number] = {}
-                      if "Line" in data:
-                          state["timing"][number]["Position"] = str(data["Line"])
-                      if "TeamColour" in data:
-                          state["timing"][number]["TeamColour"] = data["TeamColour"]
-                      if "Tla" in data:
-                          state["timing"][number]["Tla"] = data["Tla"]
-                      if "FullName" in data:
-                          state["timing"][number]["FullName"] = data["FullName"]
-                      if "TeamName" in data:
-                          state["timing"][number]["TeamName"] = data["TeamName"]
-             notify_listeners("timing", state["timing"])
-
-        elif topic == "TimingDataF1":
-            lines = msg.get("Lines", {})
-            for number, data in lines.items():
-                if number not in state["timing"]:
-                    state["timing"][number] = {}
-                if "Position" in data:
-                    state["timing"][number]["Position"] = str(data["Position"])
-                state["timing"][number].update(data)
+            for number, data in msg.items():
+                if isinstance(data, dict):
+                    if number not in state["timing"]:
+                        state["timing"][number] = {}
+                    if "Line" in data:
+                        state["timing"][number]["Position"] = str(data["Line"])
+                    if "TeamColour" in data:
+                        state["timing"][number]["TeamColour"] = data["TeamColour"]
+                    if "Tla" in data:
+                        state["timing"][number]["Tla"] = data["Tla"]
+                    if "FullName" in data:
+                        state["timing"][number]["FullName"] = data["FullName"]
+                    if "TeamName" in data:
+                        state["timing"][number]["TeamName"] = data["TeamName"]
             notify_listeners("timing", state["timing"])
 
         elif topic == "LapCount":
@@ -115,7 +123,6 @@ async def start_live_client():
             logger.info("Negociando conexión con F1...")
 
             async with aiohttp.ClientSession() as http:
-                # Negotiate y connect en la misma sesión para minimizar latencia
                 async with http.post(
                     "https://livetiming.formula1.com/signalrcore/negotiate?negotiateVersion=1",
                     headers={"User-Agent": "BestHTTP"},
@@ -136,27 +143,7 @@ async def start_live_client():
                     await ws.send_str(json.dumps({"protocol": "json", "version": 1}) + "\x1e")
                     await ws.receive()
 
-                    # Pedir estado completo primero
-                    get_all = {
-                        "type": 1,
-                        "invocationId": "0",
-                        "target": "Start",
-                        "arguments": [[
-                            "SessionInfo",
-                            "SessionData", 
-                            "TimingData",
-                            "TimingDataF1",
-                            "TimingAppData",
-                            "WeatherData",
-                            "RaceControlMessages",
-                            "DriverList",
-                            ], []],
-                        }
-                    await ws.send_str(json.dumps(get_all) + "\x1e")
-
-                    response = await ws.receive()                    
-
-                    # Suscribirse a tópicos
+                    # Suscribirse a todos los tópicos
                     subscribe = {
                         "type": 1,
                         "invocationId": "0",
@@ -177,9 +164,6 @@ async def start_live_client():
                     await ws.send_str(json.dumps(subscribe) + "\x1e")
 
                     state["connected"] = True
-                    logger.info("✅ Conectado al feed de F1")
-
-                    state["connected"] = True
                     logger.info("✅ Conectado al feed de F1 — esperando sesión activa")
 
                     async for msg in ws:
@@ -197,9 +181,7 @@ async def start_live_client():
                                         target = data.get("target", "")
                                         args = data.get("arguments", [])
                                         if target == "feed" and len(args) >= 2:
-                                            topic = args[0]
-                                            payload = args[1]
-                                            process_message(topic, payload)
+                                            process_message(args[0], args[1])
                                         elif target and args:
                                             process_message(target, args[0])
                                 except Exception as e:
