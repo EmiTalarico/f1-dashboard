@@ -137,6 +137,9 @@ async def start_live_client():
                     }
                     await ws.send_str(json.dumps(get_all) + "\x1e")
 
+                    response = await ws.receive()
+                    logger.info(f"GetAll response: {response.data[:1000] if hasattr(response, 'data') else str(response)[:1000]}")
+
                     # Suscribirse a tópicos
                     subscribe = {
                         "type": 1,
