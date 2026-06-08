@@ -132,7 +132,7 @@ async def start_live_client():
                     get_all = {
                         "type": 1,
                         "invocationId": "0",
-                        "target": "GetAll",
+                        "target": "GetCurrentState",
                         "arguments": [],
                     }
                     await ws.send_str(json.dumps(get_all) + "\x1e")
