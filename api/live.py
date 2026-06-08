@@ -97,6 +97,14 @@ def process_message(topic: str, msg: dict):
                 state["timing"][number].update(data)
             notify_listeners("timing", state["timing"])
 
+        elif topic == "LapCount":
+            state["session_data"]["LapCount"] = msg
+            notify_listeners("session_data", state["session_data"])
+
+        elif topic == "ExtrapolatedClock":
+            state["session_data"]["Clock"] = msg
+            notify_listeners("session_data", state["session_data"])
+
     except Exception as e:
         logger.error(f"Error procesando {topic}: {e}")
 
@@ -146,8 +154,7 @@ async def start_live_client():
                         }
                     await ws.send_str(json.dumps(get_all) + "\x1e")
 
-                    response = await ws.receive()
-                    logger.info(f"GetAll response: {response.data[:1000] if hasattr(response, 'data') else str(response)[:1000]}")
+                    response = await ws.receive()                    
 
                     # Suscribirse a tópicos
                     subscribe = {
@@ -163,9 +170,14 @@ async def start_live_client():
                             "WeatherData",
                             "RaceControlMessages",
                             "DriverList",
+                            "LapCount",
+                            "ExtrapolatedClock",
                         ]],
                     }
                     await ws.send_str(json.dumps(subscribe) + "\x1e")
+
+                    state["connected"] = True
+                    logger.info("✅ Conectado al feed de F1")
 
                     state["connected"] = True
                     logger.info("✅ Conectado al feed de F1 — esperando sesión activa")
