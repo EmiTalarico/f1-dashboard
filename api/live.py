@@ -132,9 +132,18 @@ async def start_live_client():
                     get_all = {
                         "type": 1,
                         "invocationId": "0",
-                        "target": "GetCurrentState",
-                        "arguments": [],
-                    }
+                        "target": "Start",
+                        "arguments": [[
+                            "SessionInfo",
+                            "SessionData", 
+                            "TimingData",
+                            "TimingDataF1",
+                            "TimingAppData",
+                            "WeatherData",
+                            "RaceControlMessages",
+                            "DriverList",
+                            ], []],
+                        }
                     await ws.send_str(json.dumps(get_all) + "\x1e")
 
                     response = await ws.receive()
