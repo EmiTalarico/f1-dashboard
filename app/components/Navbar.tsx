@@ -78,7 +78,7 @@ export default function Navbar() {
         {/* Logo + toggle */}
         <div className="flex items-center justify-between mb-6 px-1">
           {!collapsed && (
-            <img src="/logo-horizontal.png" alt="F1Pasión" className="h-10 w-auto" />
+            <img src="/logoNavbar.png" alt="F1Pasión" className="h-30 w-auto" />
           )}
           <button
             onClick={() => setCollapsed(c => !c)}
@@ -128,7 +128,7 @@ export default function Navbar() {
         }}
       >
         <div className="flex items-center justify-between mb-6 px-1">
-          <img src="/logo-horizontal.png" alt="F1Pasión" className="h-8 w-auto" />
+          <img src="/logoNavbar.png" alt="F1Pasión" className="h-30 w-auto" />
           <button onClick={() => setMobileOpen(false)} style={{ color: 'var(--f1-muted)' }}>✕</button>
         </div>
         <NavLinks />
