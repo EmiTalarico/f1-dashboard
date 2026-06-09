@@ -9,9 +9,7 @@ const geistMono = Geist_Mono({ variable: '--font-geist-mono', subsets: ['latin']
 export const metadata: Metadata = {
   title: 'F1Pasión',
   description: 'Standings, noticias, telemetría y live timing de Formula 1',
-  icons: {
-    icon: '/favicon.ico',
-  },
+  icons: { icon: '/favicon.ico' },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -19,8 +17,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="es">
       <body className={`${geistSans.variable} ${geistMono.variable}`}>
         <Navbar />
-        {/* En desktop desplazamos el contenido para que no quede debajo del sidebar */}
-        <div className="md:ml-56 pb-20 md:pb-0">
+        {/*
+          Desktop: margen izquierdo para el sidebar (220px expandido, 60px colapsado)
+          Mobile: padding top para el header fijo
+        */}
+        <div className="md:ml-[220px] pt-16 md:pt-0">
           {children}
         </div>
       </body>
