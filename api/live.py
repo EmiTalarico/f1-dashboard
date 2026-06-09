@@ -20,7 +20,8 @@ state = {
 }
 
 listeners = []
-_current_session_key = None  # Para detectar cambio de sesión
+_current_session_key = None
+_http_session: aiohttp.ClientSession | None = None  # Sesión HTTP global
 
 
 def notify_listeners(topic: str, data):
@@ -36,7 +37,6 @@ def notify_listeners(topic: str, data):
 
 
 def reset_session_state():
-    """Limpia el estado cuando cambia la sesión."""
     state["timing"] = {}
     state["tyres"] = {}
     state["race_control"] = []
@@ -46,16 +46,54 @@ def reset_session_state():
     logger.info("Estado de sesión reseteado")
 
 
+async def fetch_static_stints(session_info: dict):
+    """Fetchea TimingAppData estático para obtener compuestos desde el inicio."""
+    global _http_session
+    if not _http_session:
+        return
+    try:
+        path = session_info.get("Path", "")
+        if not path:
+            return
+        url = f"https://livetiming.formula1.com/static/{path}TimingAppData.json"
+        logger.info(f"Fetching stints estáticos: {url}")
+        async with _http_session.get(url) as r:
+            if r.status == 200:
+                data = await r.json(content_type=None)
+                lines = data.get("Lines", {})
+                for number, driver_data in lines.items():
+                    if number not in state["tyres"]:
+                        state["tyres"][number] = {}
+                    if "Stints" in driver_data:
+                        # Merge profundo para no pisar datos ya recibidos
+                        if "Stints" not in state["tyres"][number]:
+                            state["tyres"][number]["Stints"] = {}
+                        for stint_key, stint_data in driver_data["Stints"].items():
+                            if stint_key not in state["tyres"][number]["Stints"]:
+                                state["tyres"][number]["Stints"][stint_key] = {}
+                            # Solo actualizar campos que no existen ya
+                            for k, v in stint_data.items():
+                                if k not in state["tyres"][number]["Stints"][stint_key]:
+                                    state["tyres"][number]["Stints"][stint_key][k] = v
+                notify_listeners("tyres", state["tyres"])
+                logger.info(f"✅ Stints estáticos cargados para {len(lines)} pilotos")
+            else:
+                logger.warning(f"Stints estáticos no disponibles aún (status {r.status})")
+    except Exception as e:
+        logger.error(f"Error fetching stints estáticos: {e}")
+
+
 def process_message(topic: str, msg: dict):
     global _current_session_key
     try:
         if topic == "SessionInfo":
-            # Detectar cambio de sesión y resetear estado
             new_key = msg.get("Key") or msg.get("Meeting", {}).get("Key")
             if new_key and new_key != _current_session_key:
                 logger.info(f"Nueva sesión detectada: {new_key}")
                 _current_session_key = new_key
                 reset_session_state()
+                # Fetchear stints estáticos en background
+                asyncio.create_task(fetch_static_stints(msg))
             state["session"] = msg
             notify_listeners("session", msg)
 
@@ -68,10 +106,8 @@ def process_message(topic: str, msg: dict):
             for number, data in lines.items():
                 if number not in state["timing"]:
                     state["timing"][number] = {}
-                # Line es la posición más confiable y frecuente
                 if "Line" in data:
                     state["timing"][number]["Position"] = str(data["Line"])
-                # Merge incremental — no sobreescribir con None
                 for k, v in data.items():
                     if v is not None and k != "Line":
                         state["timing"][number][k] = v
@@ -96,7 +132,6 @@ def process_message(topic: str, msg: dict):
             for number, data in lines.items():
                 if number not in state["tyres"]:
                     state["tyres"][number] = {}
-                # Merge profundo para Stints
                 if "Stints" in data:
                     if "Stints" not in state["tyres"][number]:
                         state["tyres"][number]["Stints"] = {}
@@ -127,7 +162,6 @@ def process_message(topic: str, msg: dict):
                     continue
                 if number not in state["timing"]:
                     state["timing"][number] = {}
-                # DriverList es la fuente de info estática del piloto
                 for field in ("Line", "RacingNumber", "Tla", "FullName",
                               "TeamName", "TeamColour", "CountryCode"):
                     if field in data:
@@ -166,11 +200,14 @@ def process_message(topic: str, msg: dict):
 
 
 async def start_live_client():
+    global _http_session
     while True:
         try:
             logger.info("Negociando conexión con F1...")
 
             async with aiohttp.ClientSession() as http:
+                _http_session = http
+
                 async with http.post(
                     "https://livetiming.formula1.com/signalrcore/negotiate?negotiateVersion=1",
                     headers={"User-Agent": "BestHTTP"},
@@ -187,11 +224,9 @@ async def start_live_client():
                     heartbeat=20,
                     timeout=aiohttp.ClientTimeout(total=None),
                 ) as ws:
-                    # Handshake SignalR
                     await ws.send_str(json.dumps({"protocol": "json", "version": 1}) + "\x1e")
                     await ws.receive()
 
-                    # Suscribirse a todos los tópicos disponibles gratuitamente
                     subscribe = {
                         "type": 1,
                         "invocationId": "0",
@@ -229,12 +264,11 @@ async def start_live_client():
                                 try:
                                     data = json.loads(part)
                                     msg_type = data.get("type")
-                                    if msg_type == 6:  # ping
+                                    if msg_type == 6:
                                         continue
                                     if msg_type == 1:
                                         target = data.get("target", "")
                                         args = data.get("arguments", [])
-                                        # El feed usa target="feed" con topic en args[0]
                                         if target == "feed" and len(args) >= 2:
                                             process_message(args[0], args[1])
                                         elif target and args:
@@ -248,6 +282,7 @@ async def start_live_client():
         except Exception as e:
             logger.error(f"Desconectado: {e}")
             state["connected"] = False
+            _http_session = None
 
         logger.info("Reintentando en 15 segundos...")
         await asyncio.sleep(15)
