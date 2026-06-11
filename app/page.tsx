@@ -15,7 +15,7 @@ export default function Home() {
         Temporada 2026
       </p>
       <NextRace />
-      <OnThisDay races={[]} dayMonth={''} />
+      <OnThisDay />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <DriverStandings />
         <ConstructorStandings />
