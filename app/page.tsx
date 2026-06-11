@@ -1,6 +1,7 @@
 import DriverStandings from './components/DriverStandings'
 import ConstructorStandings from './components/ConstructorStandings'
 import NextRace from './components/NextRace'
+import OnThisDay from './components/OnThisDay'
 
 export default function Home() {
   return (
@@ -14,6 +15,7 @@ export default function Home() {
         Temporada 2026
       </p>
       <NextRace />
+      <OnThisDay races={[]} dayMonth={''} />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <DriverStandings />
         <ConstructorStandings />
