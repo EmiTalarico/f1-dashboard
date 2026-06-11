@@ -119,7 +119,7 @@ export default function Navbar() {
 
       {/* ── Mobile drawer ── */}
       <div
-        className="md:hidden fixed top-0 left-0 bottom-0 z-40 flex flex-col py-6 px-3 gap-1 transition-transform duration-300"
+        className="md:hidden fixed top-0 left-0 bottom-0 z-40 flex flex-col py-6 px-1 gap-1 transition-transform duration-300"
         style={{
           width: '240px',
           background: 'var(--f1-gray)',

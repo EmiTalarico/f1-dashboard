@@ -27,7 +27,7 @@ type Race = {
 
 async function getOnThisDay(): Promise<Race[]> {
   try {
-    const today = new Date()
+    const today = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires' }))
     const month = String(today.getMonth() + 1).padStart(2, '0')
     const day = String(today.getDate()).padStart(2, '0')
     const currentYear = today.getFullYear()
