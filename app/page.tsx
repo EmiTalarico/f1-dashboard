@@ -23,11 +23,3 @@ export default function Home() {
     </main>
   )
 }
-
-/*<div className="px-3 mb-8">
-          <img
-            src="/logo-horizontal.png"
-            alt="F1Pasión"
-            className="h-12 w-auto"
-          />
-      </div> */
