@@ -1,10 +1,7 @@
 import json
 import asyncio
 import logging
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    import aiohttp
+import aiohttp
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -23,7 +20,7 @@ state = {
 
 listeners = []
 _current_session_key = None
-_http_session: "aiohttp.ClientSession | None" = None
+_http_session: aiohttp.ClientSession | None = None
 
 
 def notify_listeners(topic: str, data):
@@ -240,6 +237,10 @@ def process_message(topic: str, msg):
 
 async def start_live_client():
     global _http_session
+
+    logger.info(f"aiohttp module = {aiohttp}")
+    logger.info(f"aiohttp version = {aiohttp.__version__}")
+
     while True:
         try:
             logger.info("Negociando conexión con F1...")
@@ -260,7 +261,7 @@ async def start_live_client():
                 async with http.ws_connect(
                     ws_url,
                     headers={"User-Agent": "BestHTTP"},
-                    heartbeat=10,
+                    heartbeat=30,
                     timeout=aiohttp.ClientTimeout(total=None, connect=10),
                 ) as ws:
                     await ws.send_str(json.dumps({"protocol": "json", "version": 1}) + "\x1e")
