@@ -102,7 +102,6 @@ const SESSION_LABELS: Record<string, string> = {
   'Sprint': '🟠 Sprint', 'Race': '🏁 Carrera',
 }
 
-// Status de pista: 1=verde, 2=amarillo, 3=bandera verde, 4=SC, 5=roja, 6=VSC, 7=VSC fin
 const TRACK_STATUS_INFO: Record<string, { label: string; color: string; emoji: string }> = {
   '1': { label: 'Pista despejada', color: '#00a550', emoji: '🟢' },
   '2': { label: 'Bandera amarilla', color: '#ffd700', emoji: '🟡' },
@@ -118,12 +117,81 @@ const SEGMENT_COLORS: Record<number, string> = {
   2064: '#888', 0: '#333',
 }
 
+// ── Calcular tiempo restante extrapolado ──
+function useExtrapolatedClock(clock: any): string {
+  const [remaining, setRemaining] = useState('')
+
+  useEffect(() => {
+    if (!clock?.Remaining) { setRemaining(''); return }
+
+    // Si no está extrapolando, mostrar el valor directo
+    if (!clock.Extrapolating) { setRemaining(clock.Remaining); return }
+
+    const calcRemaining = () => {
+      const [h, m, s] = clock.Remaining.split(':').map(Number)
+      const totalSeconds = h * 3600 + m * 60 + s
+      const refTime = new Date(clock.Utc).getTime()
+      const elapsed = (Date.now() - refTime) / 1000
+      const left = Math.max(0, totalSeconds - elapsed)
+      const lh = Math.floor(left / 3600)
+      const lm = Math.floor((left % 3600) / 60)
+      const ls = Math.floor(left % 60)
+      return `${lh > 0 ? lh + ':' : ''}${String(lm).padStart(2, '0')}:${String(ls).padStart(2, '0')}`
+    }
+
+    setRemaining(calcRemaining())
+    const interval = setInterval(() => setRemaining(calcRemaining()), 1000)
+    return () => clearInterval(interval)
+  }, [clock])
+
+  return remaining
+}
+
+// ── Merge profundo de sectores acumulando segmentos ──
+function mergeTiming(prev: LiveState['timing'], next: LiveState['timing']): LiveState['timing'] {
+  const merged = { ...prev }
+  for (const [num, data] of Object.entries(next)) {
+    if (!merged[num]) {
+      merged[num] = { ...data }
+      continue
+    }
+    const prevDriver = merged[num]
+    const newDriver = { ...prevDriver, ...data }
+
+    // Merge profundo de sectores — acumular segmentos
+    if (data.Sectors) {
+      newDriver.Sectors = { ...prevDriver.Sectors }
+      for (const [sKey, sector] of Object.entries(data.Sectors)) {
+        const prevSector = prevDriver.Sectors?.[sKey] ?? {}
+        if (sector.Segments) {
+          // Acumular segmentos sin borrar los anteriores
+          const prevSegs = prevSector.Segments ?? {}
+          newDriver.Sectors[sKey] = {
+            ...prevSector,
+            ...sector,
+            Segments: { ...prevSegs, ...sector.Segments },
+          }
+        } else {
+          newDriver.Sectors[sKey] = { ...prevSector, ...sector }
+        }
+      }
+    }
+
+    merged[num] = newDriver
+  }
+  return merged
+}
+
 function SectorTime({ sector }: {
   sector?: { Value?: string; OverallFastest?: boolean; PersonalFastest?: boolean; Segments?: { [k: string]: { Status: number } } }
 }) {
   if (!sector) return <div className="text-xs font-mono" style={{ color: 'var(--f1-muted)' }}>—</div>
   const color = sector.OverallFastest ? '#a855f7' : sector.PersonalFastest ? '#00a550' : 'inherit'
-  const segments = sector.Segments ? Object.values(sector.Segments) : []
+  const segments = sector.Segments
+    ? Object.entries(sector.Segments)
+        .sort(([a], [b]) => parseInt(a) - parseInt(b))
+        .map(([, v]) => v)
+    : []
   return (
     <div>
       <div className="text-xs font-mono font-bold" style={{ color }}>{sector.Value || '—'}</div>
@@ -160,12 +228,13 @@ export default function LiveTimingPage() {
             setLiveState(prev => {
               if (!prev) return prev
               const next = { ...prev }
-              if (msg.topic === 'timing') next.timing = msg.data
+              // Timing usa merge profundo para acumular sectores
+              if (msg.topic === 'timing') next.timing = mergeTiming(prev.timing, msg.data)
               if (msg.topic === 'tyres') next.tyres = msg.data
               if (msg.topic === 'weather') next.weather = msg.data
               if (msg.topic === 'race_control') next.race_control = msg.data
               if (msg.topic === 'session') next.session = msg.data
-              if (msg.topic === 'session_data') next.session_data = msg.data
+              if (msg.topic === 'session_data') next.session_data = { ...prev.session_data, ...msg.data }
               if (msg.topic === 'track_status') next.track_status = msg.data
               if (msg.topic === 'timing_stats') next.timing_stats = msg.data
               return next
@@ -180,6 +249,9 @@ export default function LiveTimingPage() {
     connect()
     return () => wsRef.current?.close()
   }, [])
+
+  const clock = liveState?.session_data?.Clock
+  const remainingTime = useExtrapolatedClock(clock)
 
   const sortedDrivers = liveState
     ? Object.entries(liveState.timing)
@@ -220,7 +292,6 @@ export default function LiveTimingPage() {
   const lapCount = liveState?.session_data?.LapCount
   const totalLaps = lapCount?.TotalLaps
   const currentLap = lapCount?.CurrentLap
-  const clock = liveState?.session_data?.Clock
   const isRace = sessionName === 'Race' || sessionName === 'Sprint'
 
   return (
@@ -252,18 +323,16 @@ export default function LiveTimingPage() {
                   {sessionLabel}
                 </span>
               )}
-              {/* Vuelta actual en carrera */}
               {isRace && currentLap && totalLaps && (
                 <span className="text-sm font-bold px-3 py-0.5 rounded-full"
                   style={{ background: 'var(--f1-red)', color: '#fff' }}>
                   Vuelta {currentLap} / {totalLaps}
                 </span>
               )}
-              {/* Tiempo restante en clasificación */}
-              {!isRace && clock?.Remaining && (
+              {!isRace && remainingTime && (
                 <span className="text-sm font-bold px-3 py-0.5 rounded-full"
                   style={{ background: '#ffd700', color: '#000' }}>
-                  ⏱ {clock.Remaining}
+                  ⏱ {remainingTime}
                 </span>
               )}
             </div>
@@ -271,7 +340,6 @@ export default function LiveTimingPage() {
         </div>
 
         <div className="flex flex-col items-end gap-1">
-          {/* Track status */}
           {hasData && trackStatusInfo && (
             <span className="text-sm font-bold px-3 py-1 rounded-full"
               style={{ background: trackStatusInfo.color + '22', color: trackStatusInfo.color, border: `1px solid ${trackStatusInfo.color}` }}>
@@ -407,8 +475,6 @@ export default function LiveTimingPage() {
 
         {/* Panel lateral */}
         <div className="flex flex-col gap-4">
-
-          {/* Clima */}
           {weather && Object.keys(weather).length > 0 && (
             <div className="rounded-xl px-5 py-4" style={{ background: 'var(--f1-gray)' }}>
               <h3 className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--f1-muted)' }}>🌤 Condiciones</h3>
@@ -427,7 +493,6 @@ export default function LiveTimingPage() {
             </div>
           )}
 
-          {/* Race Control */}
           {liveState?.race_control && liveState.race_control.length > 0 && (
             <div className="rounded-xl px-5 py-4" style={{ background: 'var(--f1-gray)' }}>
               <h3 className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--f1-muted)' }}>📻 Race Control</h3>
