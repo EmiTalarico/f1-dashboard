@@ -6,7 +6,6 @@ import aiohttp
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Estado global
 state = {
     "connected": False,
     "session": {},
@@ -21,7 +20,7 @@ state = {
 
 listeners = []
 _current_session_key = None
-_http_session: aiohttp.ClientSession | None = None  # Sesión HTTP global
+_http_session: aiohttp.ClientSession | None = None
 
 
 def notify_listeners(topic: str, data):
@@ -47,7 +46,6 @@ def reset_session_state():
 
 
 async def fetch_static_stints(session_info: dict):
-    """Fetchea TimingAppData estático para obtener compuestos desde el inicio."""
     global _http_session
     if not _http_session:
         return
@@ -61,20 +59,26 @@ async def fetch_static_stints(session_info: dict):
             if r.status == 200:
                 data = await r.json(content_type=None)
                 lines = data.get("Lines", {})
+                if not isinstance(lines, dict):
+                    return
                 for number, driver_data in lines.items():
+                    if not isinstance(driver_data, dict):
+                        continue
                     if number not in state["tyres"]:
                         state["tyres"][number] = {}
                     if "Stints" in driver_data:
-                        # Merge profundo para no pisar datos ya recibidos
                         if "Stints" not in state["tyres"][number]:
                             state["tyres"][number]["Stints"] = {}
-                        for stint_key, stint_data in driver_data["Stints"].items():
-                            if stint_key not in state["tyres"][number]["Stints"]:
-                                state["tyres"][number]["Stints"][stint_key] = {}
-                            # Solo actualizar campos que no existen ya
-                            for k, v in stint_data.items():
-                                if k not in state["tyres"][number]["Stints"][stint_key]:
-                                    state["tyres"][number]["Stints"][stint_key][k] = v
+                        stints = driver_data["Stints"]
+                        if isinstance(stints, dict):
+                            for stint_key, stint_data in stints.items():
+                                if not isinstance(stint_data, dict):
+                                    continue
+                                if stint_key not in state["tyres"][number]["Stints"]:
+                                    state["tyres"][number]["Stints"][stint_key] = {}
+                                for k, v in stint_data.items():
+                                    if k not in state["tyres"][number]["Stints"][stint_key]:
+                                        state["tyres"][number]["Stints"][stint_key][k] = v
                 notify_listeners("tyres", state["tyres"])
                 logger.info(f"✅ Stints estáticos cargados para {len(lines)} pilotos")
             else:
@@ -83,27 +87,35 @@ async def fetch_static_stints(session_info: dict):
         logger.error(f"Error fetching stints estáticos: {e}")
 
 
-def process_message(topic: str, msg: dict):
+def process_message(topic: str, msg):
     global _current_session_key
     try:
+        # Ignorar mensajes que no sean dict
+        if not isinstance(msg, dict):
+            return
+
         if topic == "SessionInfo":
             new_key = msg.get("Key") or msg.get("Meeting", {}).get("Key")
             if new_key and new_key != _current_session_key:
                 logger.info(f"Nueva sesión detectada: {new_key}")
                 _current_session_key = new_key
                 reset_session_state()
-                # Fetchear stints estáticos en background
                 asyncio.create_task(fetch_static_stints(msg))
             state["session"] = msg
             notify_listeners("session", msg)
 
         elif topic == "SessionData":
-            state["session_data"].update(msg)
+            if isinstance(msg, dict):
+                state["session_data"].update(msg)
             notify_listeners("session_data", state["session_data"])
 
         elif topic == "TimingData":
             lines = msg.get("Lines", {})
+            if not isinstance(lines, dict):
+                return
             for number, data in lines.items():
+                if not isinstance(data, dict):
+                    continue
                 if number not in state["timing"]:
                     state["timing"][number] = {}
                 if "Line" in data:
@@ -115,7 +127,11 @@ def process_message(topic: str, msg: dict):
 
         elif topic == "TimingDataF1":
             lines = msg.get("Lines", {})
+            if not isinstance(lines, dict):
+                return
             for number, data in lines.items():
+                if not isinstance(data, dict):
+                    continue
                 if number not in state["timing"]:
                     state["timing"][number] = {}
                 if "Line" in data:
@@ -129,16 +145,24 @@ def process_message(topic: str, msg: dict):
 
         elif topic == "TimingAppData":
             lines = msg.get("Lines", {})
+            if not isinstance(lines, dict):
+                return
             for number, data in lines.items():
+                if not isinstance(data, dict):
+                    continue
                 if number not in state["tyres"]:
                     state["tyres"][number] = {}
                 if "Stints" in data:
                     if "Stints" not in state["tyres"][number]:
                         state["tyres"][number]["Stints"] = {}
-                    for stint_key, stint_data in data["Stints"].items():
-                        if stint_key not in state["tyres"][number]["Stints"]:
-                            state["tyres"][number]["Stints"][stint_key] = {}
-                        state["tyres"][number]["Stints"][stint_key].update(stint_data)
+                    stints = data["Stints"]
+                    if isinstance(stints, dict):
+                        for stint_key, stint_data in stints.items():
+                            if not isinstance(stint_data, dict):
+                                continue
+                            if stint_key not in state["tyres"][number]["Stints"]:
+                                state["tyres"][number]["Stints"][stint_key] = {}
+                            state["tyres"][number]["Stints"][stint_key].update(stint_data)
                 for k, v in data.items():
                     if k != "Stints" and v is not None:
                         state["tyres"][number][k] = v
@@ -149,14 +173,22 @@ def process_message(topic: str, msg: dict):
             notify_listeners("weather", msg)
 
         elif topic == "RaceControlMessages":
+            # Puede llegar como dict con "Messages" o directamente como lista
             messages = msg.get("Messages", {})
-            for _, m in messages.items():
-                if m not in state["race_control"]:
-                    state["race_control"].append(m)
+            if isinstance(messages, dict):
+                for _, m in messages.items():
+                    if isinstance(m, dict) and m not in state["race_control"]:
+                        state["race_control"].append(m)
+            elif isinstance(messages, list):
+                for m in messages:
+                    if isinstance(m, dict) and m not in state["race_control"]:
+                        state["race_control"].append(m)
             state["race_control"] = state["race_control"][-20:]
             notify_listeners("race_control", state["race_control"])
 
         elif topic == "DriverList":
+            if not isinstance(msg, dict):
+                return
             for number, data in msg.items():
                 if not isinstance(data, dict):
                     continue
@@ -177,7 +209,11 @@ def process_message(topic: str, msg: dict):
 
         elif topic == "TimingStats":
             lines = msg.get("Lines", {})
+            if not isinstance(lines, dict):
+                return
             for number, data in lines.items():
+                if not isinstance(data, dict):
+                    continue
                 if number not in state["timing_stats"]:
                     state["timing_stats"][number] = {}
                 state["timing_stats"][number].update(data)
@@ -221,8 +257,8 @@ async def start_live_client():
                 async with http.ws_connect(
                     ws_url,
                     headers={"User-Agent": "BestHTTP"},
-                    heartbeat=20,
-                    timeout=aiohttp.ClientTimeout(total=None),
+                    heartbeat=10,
+                    timeout=aiohttp.ClientTimeout(total=None, connect=10),
                 ) as ws:
                     await ws.send_str(json.dumps({"protocol": "json", "version": 1}) + "\x1e")
                     await ws.receive()
