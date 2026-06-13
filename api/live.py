@@ -1,7 +1,10 @@
 import json
 import asyncio
 import logging
-import aiohttp
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import aiohttp
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -20,7 +23,7 @@ state = {
 
 listeners = []
 _current_session_key = None
-_http_session: aiohttp.ClientSession | None = None
+_http_session: "aiohttp.ClientSession | None" = None
 
 
 def notify_listeners(topic: str, data):
