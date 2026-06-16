@@ -90,7 +90,6 @@ async def fetch_static_stints(session_info: dict):
 def process_message(topic: str, msg):
     global _current_session_key
     try:
-        # Ignorar mensajes que no sean dict
         if not isinstance(msg, dict):
             return
 
@@ -173,7 +172,6 @@ def process_message(topic: str, msg):
             notify_listeners("weather", msg)
 
         elif topic == "RaceControlMessages":
-            # Puede llegar como dict con "Messages" o directamente como lista
             messages = msg.get("Messages", {})
             if isinstance(messages, dict):
                 for _, m in messages.items():
@@ -238,9 +236,6 @@ def process_message(topic: str, msg):
 async def start_live_client():
     global _http_session
 
-    logger.info(f"aiohttp module = {aiohttp}")
-    logger.info(f"aiohttp version = {aiohttp.__version__}")
-
     while True:
         try:
             logger.info("Negociando conexión con F1...")
@@ -294,38 +289,52 @@ async def start_live_client():
                     state["connected"] = True
                     logger.info("✅ Conectado al feed de F1 — esperando sesión activa")
 
-                    async for msg in ws:
-                        if msg.type == aiohttp.WSMsgType.TEXT:
-                            parts = msg.data.split("\x1e")
-                            for part in parts:
-                                part = part.strip()
-                                if not part:
-                                    continue
-                                try:
-                                    data = json.loads(part)
-                                    msg_type = data.get("type")
-                                    if msg_type == 6:
+                    # Ping activo cada 30s para mantener la conexión viva
+                    async def send_ping():
+                        while True:
+                            await asyncio.sleep(30)
+                            try:
+                                await ws.send_str(json.dumps({"type": 6}) + "\x1e")
+                            except Exception:
+                                break
+
+                    ping_task = asyncio.create_task(send_ping())
+
+                    try:
+                        async for msg in ws:
+                            if msg.type == aiohttp.WSMsgType.TEXT:
+                                parts = msg.data.split("\x1e")
+                                for part in parts:
+                                    part = part.strip()
+                                    if not part:
                                         continue
-                                    if msg_type == 1:
-                                        target = data.get("target", "")
-                                        args = data.get("arguments", [])
-                                        if target == "feed" and len(args) >= 2:
-                                            process_message(args[0], args[1])
-                                        elif target and args:
-                                            process_message(target, args[0])
-                                except Exception as e:
-                                    logger.error(f"Error parseando: {e}")
-                        elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
-                            logger.warning(f"WebSocket cerrado: {msg.type}")
-                            break
+                                    try:
+                                        data = json.loads(part)
+                                        msg_type = data.get("type")
+                                        if msg_type == 6:
+                                            continue
+                                        if msg_type == 1:
+                                            target = data.get("target", "")
+                                            args = data.get("arguments", [])
+                                            if target == "feed" and len(args) >= 2:
+                                                process_message(args[0], args[1])
+                                            elif target and args:
+                                                process_message(target, args[0])
+                                    except Exception as e:
+                                        logger.error(f"Error parseando: {e}")
+                            elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+                                logger.warning(f"WebSocket cerrado: {msg.type}")
+                                break
+                    finally:
+                        ping_task.cancel()
 
         except Exception as e:
             logger.error(f"Desconectado: {e}")
             state["connected"] = False
             _http_session = None
 
-        logger.info("Reintentando en 15 segundos...")
-        await asyncio.sleep(15)
+        logger.info("Reintentando en 5 segundos...")
+        await asyncio.sleep(5)
 
 
 def get_full_state() -> dict:
