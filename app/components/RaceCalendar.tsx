@@ -11,7 +11,7 @@ type Race = {
   }
   Results?: { Driver: { givenName: string; familyName: string }; Constructor: { name: string } }[]
 }
-
+//Probando el trigger
 const COUNTRY_FLAGS: Record<string, string> = {
   Australia: '🇦🇺', Bahrain: '🇧🇭', China: '🇨🇳', Japan: '🇯🇵',
   'Saudi Arabia': '🇸🇦', USA: '🇺🇸', 'United States': '🇺🇸', Italy: '🇮🇹',
