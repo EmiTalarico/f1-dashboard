@@ -22,21 +22,29 @@ const COUNTRY_FLAGS: Record<string, string> = {
 }
 
 async function getCalendar(): Promise<Race[]> {
-  const [scheduleRes, resultsRes] = await Promise.all([
-    fetch('https://api.jolpi.ca/ergast/f1/2026.json', { next: { revalidate: 3600 } }),
-    fetch('https://api.jolpi.ca/ergast/f1/2026/results/1.json', { next: { revalidate: 3600 } }),
-  ])
+  try {
+    const [scheduleRes, resultsRes] = await Promise.all([
+      fetch('https://api.jolpi.ca/ergast/f1/2026.json', { next: { revalidate: 3600 } }),
+      fetch('https://api.jolpi.ca/ergast/f1/2026/results/1.json', { next: { revalidate: 3600 } }),
+    ])
 
-  const scheduleData = await scheduleRes.json()
-  const resultsData = await resultsRes.json()
+    if (!scheduleRes.ok) return []
 
-  const races: Race[] = scheduleData.MRData.RaceTable.Races
-  const results: Race[] = resultsData.MRData.RaceTable.Races
+    const scheduleData = await scheduleRes.json()
+    const races: Race[] = scheduleData.MRData.RaceTable.Races ?? []
 
-  return races.map((race) => {
-    const result = results.find((r) => r.round === race.round)
-    return result ? { ...race, Results: result.Results } : race
-  })
+    if (!resultsRes.ok) return races
+
+    const resultsData = await resultsRes.json()
+    const results: Race[] = resultsData.MRData.RaceTable.Races ?? []
+
+    return races.map((race) => {
+      const result = results.find((r) => r.round === race.round)
+      return result ? { ...race, Results: result.Results } : race
+    })
+  } catch {
+    return []
+  }
 }
 
 function formatDate(dateStr: string) {
@@ -48,6 +56,15 @@ function formatDate(dateStr: string) {
 
 export default async function RaceCalendar() {
   const races = await getCalendar()
+
+  if (races.length === 0) {
+    return (
+      <div className="px-5 py-8 text-center text-sm rounded-xl" style={{ background: 'var(--f1-gray)', color: 'var(--f1-muted)' }}>
+        Calendario no disponible momentáneamente
+      </div>
+    )
+  }
+
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 

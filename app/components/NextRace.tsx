@@ -40,12 +40,17 @@ const WMO_ICONS: Record<number, string> = {
 }
 
 async function getNextRace(): Promise<Race | null> {
-  const res = await fetch(
-    'https://api.jolpi.ca/ergast/f1/2026/next.json',
-    { next: { revalidate: 3600 } }
-  )
-  const data = await res.json()
-  return data.MRData.RaceTable.Races[0] ?? null
+  try {
+    const res = await fetch(
+      'https://api.jolpi.ca/ergast/f1/2026/next.json',
+      { next: { revalidate: 3600 } }
+    )
+    if (!res.ok) return null
+    const data = await res.json()
+    return data.MRData.RaceTable.Races[0] ?? null
+  } catch {
+    return null
+  }
 }
 
 async function getWeather(
@@ -54,17 +59,15 @@ async function getWeather(
   sessions: { label: string; session: Session }[]
 ): Promise<WeatherBySession> {
   try {
-    // Collect all unique dates needed
     const dates = [...new Set(sessions.map(s => s.session.date))].sort()
     const startDate = dates[0]
     const endDate = dates[dates.length - 1]
-
-    // Check if within 16-day forecast window
     const diffDays = (new Date(startDate).getTime() - Date.now()) / 86400000
     if (diffDays > 15) return {}
 
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=temperature_2m,precipitation_probability,windspeed_10m,weathercode&start_date=${startDate}&end_date=${endDate}&timezone=UTC`
     const res = await fetch(url, { next: { revalidate: 3600 } })
+    if (!res.ok) return {}
     const data = await res.json()
 
     const hourly = data.hourly
@@ -127,15 +130,11 @@ function SessionRow({ label, session, weather, isMain = false }: {
   isMain?: boolean
 }) {
   return (
-    <div
-      className="rounded-lg px-4 py-3 mb-2"
-      style={{ background: isMain ? 'var(--f1-light-gray)' : 'var(--f1-gray)' }}
-    >
+    <div className="rounded-lg px-4 py-3 mb-2"
+      style={{ background: isMain ? 'var(--f1-light-gray)' : 'var(--f1-gray)' }}>
       <div className="flex items-center gap-2 mb-2">
-        <span
-          className="text-xs font-bold px-2 py-0.5 rounded-full"
-          style={{ background: isMain ? 'var(--f1-red)' : 'var(--f1-light-gray)', color: '#fff' }}
-        >
+        <span className="text-xs font-bold px-2 py-0.5 rounded-full"
+          style={{ background: isMain ? 'var(--f1-red)' : 'var(--f1-light-gray)', color: '#fff' }}>
           {label}
         </span>
       </div>
@@ -155,7 +154,14 @@ function SessionRow({ label, session, weather, isMain = false }: {
 
 export default async function NextRace() {
   const race = await getNextRace()
-  if (!race) return null
+
+  if (!race) {
+    return (
+      <div className="rounded-xl px-6 py-5 mb-6 text-sm" style={{ background: 'var(--f1-gray)', color: 'var(--f1-muted)' }}>
+        Próxima carrera no disponible momentáneamente
+      </div>
+    )
+  }
 
   const timeLeft = getTimeLeft(race.date, race.time)
   const isSprintWeekend = !!(race.Sprint || race.SprintQualifying || race.SprintShootout)
@@ -179,7 +185,6 @@ export default async function NextRace() {
 
   return (
     <div className="rounded-xl px-6 py-5 mb-6" style={{ background: 'var(--f1-gray)' }}>
-      {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
         <div>
           <p className="text-xs uppercase tracking-widest mb-1" style={{ color: 'var(--f1-red)' }}>
@@ -212,8 +217,6 @@ export default async function NextRace() {
           </div>
         )}
       </div>
-
-      {/* Sesiones */}
       <div>
         <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--f1-muted)' }}>
           HORARIOS DEL FIN DE SEMANA
