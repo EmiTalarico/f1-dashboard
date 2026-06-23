@@ -1,3 +1,5 @@
+import NextSessionCountdown from './NextSessionCountdown'
+
 type Session = { date: string; time: string }
 
 type Race = {
@@ -91,17 +93,6 @@ async function getWeather(
   }
 }
 
-function getTimeLeft(date: string, time: string) {
-  const raceDate = new Date(`${date}T${time}`)
-  const diff = raceDate.getTime() - Date.now()
-  if (diff <= 0) return null
-  return {
-    days:    Math.floor(diff / (1000 * 60 * 60 * 24)),
-    hours:   Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)),
-    minutes: Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60)),
-  }
-}
-
 function formatInTZ(date: string, time: string, tz: string) {
   return new Date(`${date}T${time}`).toLocaleString('es-AR', {
     timeZone: tz, weekday: 'short', day: 'numeric',
@@ -163,7 +154,6 @@ export default async function NextRace() {
     )
   }
 
-  const timeLeft = getTimeLeft(race.date, race.time)
   const isSprintWeekend = !!(race.Sprint || race.SprintQualifying || race.SprintShootout)
 
   const sessions: { label: string; session: Session; isMain?: boolean }[] = [
@@ -183,6 +173,13 @@ export default async function NextRace() {
     sessions
   )
 
+  // Lista plana para el countdown — solo lo necesario
+  const countdownSessions = sessions.map(s => ({
+    label: s.label,
+    date: s.session.date,
+    time: s.session.time,
+  }))
+
   return (
     <div className="rounded-xl px-6 py-5 mb-6" style={{ background: 'var(--f1-gray)' }}>
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
@@ -201,21 +198,7 @@ export default async function NextRace() {
             </span>
           )}
         </div>
-        {timeLeft && (
-          <div className="flex gap-4">
-            {[
-              { value: timeLeft.days,    label: 'días'  },
-              { value: timeLeft.hours,   label: 'horas' },
-              { value: timeLeft.minutes, label: 'min'   },
-            ].map(({ value, label }) => (
-              <div key={label} className="text-center rounded-lg px-4 py-3 min-w-[64px]"
-                style={{ background: 'var(--f1-light-gray)' }}>
-                <div className="text-2xl font-bold">{value}</div>
-                <div className="text-xs mt-1" style={{ color: 'var(--f1-muted)' }}>{label}</div>
-              </div>
-            ))}
-          </div>
-        )}
+        <NextSessionCountdown sessions={countdownSessions} />
       </div>
       <div>
         <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--f1-muted)' }}>
