@@ -354,10 +354,10 @@ export default function LiveTimingPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
+      <div className={hasData ? "grid grid-cols-1 xl:grid-cols-4 gap-4" : "flex flex-col gap-4"}>
 
         {/* Tabla */}
-        <div className="xl:col-span-3">
+        <div className={hasData ? "xl:col-span-3" : "w-full"}>
           <div className="rounded-xl overflow-x-auto" style={{ background: 'var(--f1-gray)' }}>
             <div
               className="hidden md:grid gap-2 px-4 py-2 text-xs font-semibold uppercase"
@@ -473,8 +473,8 @@ export default function LiveTimingPage() {
           </div>
         </div>
 
-        {/* Panel lateral */}
-        <div className="flex flex-col gap-4">
+        {/* Panel lateral / inferior */}
+        <div className={hasData ? "flex flex-col gap-4" : "flex flex-col gap-4 md:flex-row"}>
           {weather && Object.keys(weather).length > 0 && (
             <div className="rounded-xl px-5 py-4" style={{ background: 'var(--f1-gray)' }}>
               <h3 className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--f1-muted)' }}>🌤 Condiciones</h3>
