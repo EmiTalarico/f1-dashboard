@@ -5,6 +5,10 @@ import { F1_DRIVERS } from '../data/f1drivers'
 
 const WS_URL = process.env.NEXT_PUBLIC_API_URL?.replace('https://', 'wss://').replace('http://', 'ws://') + '/ws/live'
 
+// Delay base: tiempo que retenemos cada mensaje antes de aplicarlo al estado visible.
+// Le da margen a los sectores/minisectores para "completarse" antes de mostrarse.
+const BASE_DELAY_MS = 4000
+
 type DriverTiming = {
   Position?: string
   GapToLeader?: string
@@ -123,8 +127,6 @@ function useExtrapolatedClock(clock: any): string {
 
   useEffect(() => {
     if (!clock?.Remaining) { setRemaining(''); return }
-
-    // Si no está extrapolando, mostrar el valor directo
     if (!clock.Extrapolating) { setRemaining(clock.Remaining); return }
 
     const calcRemaining = () => {
@@ -158,13 +160,11 @@ function mergeTiming(prev: LiveState['timing'], next: LiveState['timing']): Live
     const prevDriver = merged[num]
     const newDriver = { ...prevDriver, ...data }
 
-    // Merge profundo de sectores — acumular segmentos
     if (data.Sectors) {
       newDriver.Sectors = { ...prevDriver.Sectors }
       for (const [sKey, sector] of Object.entries(data.Sectors)) {
         const prevSector = prevDriver.Sectors?.[sKey] ?? {}
         if (sector.Segments) {
-          // Acumular segmentos sin borrar los anteriores
           const prevSegs = prevSector.Segments ?? {}
           newDriver.Sectors[sKey] = {
             ...prevSector,
@@ -207,11 +207,110 @@ function SectorTime({ sector }: {
   )
 }
 
+// ── Item en el buffer: mensaje crudo + el momento (relativo) en que debe liberarse ──
+type BufferItem = { msg: any; releaseAt: number }
+
 export default function LiveTimingPage() {
   const [liveState, setLiveState] = useState<LiveState | null>(null)
   const [connected, setConnected] = useState(false)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
+  const [paused, setPaused] = useState(false)
+  const [bufferCount, setBufferCount] = useState(0)
+  const [delaySeconds, setDelaySeconds] = useState(BASE_DELAY_MS / 1000)
+
   const wsRef = useRef<WebSocket | null>(null)
+  const pendingRef = useRef<{ timing: LiveState['timing'] | null; other: Partial<LiveState> }>({ timing: null, other: {} })
+  const flushTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Buffer central: todo mensaje entra aquí con su tiempo de liberación
+  const bufferRef = useRef<BufferItem[]>([])
+  // Cuánto delay extra se acumuló por pausas (se suma al BASE_DELAY_MS, nunca baja)
+  const extraDelayRef = useRef(0)
+  const pausedRef = useRef(false)
+  const pauseStartedAtRef = useRef<number | null>(null)
+  const releaseTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  function applyMessage(msg: any) {
+    if (msg.topic === 'ping') return
+    if (msg.topic === 'snapshot') {
+      setLiveState(msg.data)
+    } else if (msg.topic === 'timing') {
+      pendingRef.current.timing = pendingRef.current.timing
+        ? mergeTiming(pendingRef.current.timing, msg.data)
+        : msg.data
+    } else {
+      const key = msg.topic === 'tyres' ? 'tyres'
+        : msg.topic === 'weather' ? 'weather'
+        : msg.topic === 'race_control' ? 'race_control'
+        : msg.topic === 'session' ? 'session'
+        : msg.topic === 'track_status' ? 'track_status'
+        : msg.topic === 'timing_stats' ? 'timing_stats'
+        : null
+      if (msg.topic === 'session_data') {
+        pendingRef.current.other.session_data = {
+          ...(pendingRef.current.other.session_data ?? {}),
+          ...msg.data,
+        }
+      } else if (key) {
+        ;(pendingRef.current.other as any)[key] = msg.data
+      }
+    }
+    setLastUpdate(new Date())
+  }
+
+  // ── Cada 200ms: libera del buffer todo lo que ya cumplió su delay, y aplica el flush de timing ──
+  useEffect(() => {
+    releaseTimerRef.current = setInterval(() => {
+      const now = Date.now()
+      const buffer = bufferRef.current
+
+      // Mientras está pausado no liberamos nada — solo se sigue acumulando
+      if (!pausedRef.current) {
+        let releasedCount = 0
+        while (buffer.length > 0 && buffer[0].releaseAt <= now) {
+          const item = buffer.shift()!
+          applyMessage(item.msg)
+          releasedCount++
+        }
+      }
+
+      setBufferCount(bufferRef.current.length)
+    }, 200)
+
+    flushTimerRef.current = setInterval(() => {
+      const pending = pendingRef.current
+      if (!pending.timing && Object.keys(pending.other).length === 0) return
+      setLiveState(prev => {
+        if (!prev) return prev
+        const next = { ...prev, ...pending.other }
+        if (pending.timing) next.timing = mergeTiming(prev.timing, pending.timing)
+        return next
+      })
+      pendingRef.current = { timing: null, other: {} }
+    }, 200)
+
+    return () => {
+      if (releaseTimerRef.current) clearInterval(releaseTimerRef.current)
+      if (flushTimerRef.current) clearInterval(flushTimerRef.current)
+    }
+  }, [])
+
+  function togglePause() {
+    setPaused(p => {
+      const next = !p
+      pausedRef.current = next
+      if (next) {
+        pauseStartedAtRef.current = Date.now()
+      } else if (pauseStartedAtRef.current) {
+        // Al despausar, el tiempo que estuvo pausado se suma como delay permanente
+        const pausedFor = Date.now() - pauseStartedAtRef.current
+        extraDelayRef.current += pausedFor
+        setDelaySeconds(Math.round((BASE_DELAY_MS + extraDelayRef.current) / 1000))
+        pauseStartedAtRef.current = null
+      }
+      return next
+    })
+  }
 
   useEffect(() => {
     function connect() {
@@ -223,24 +322,14 @@ export default function LiveTimingPage() {
           const msg = JSON.parse(event.data)
           if (msg.topic === 'ping') return
           if (msg.topic === 'snapshot') {
-            setLiveState(msg.data)
-          } else {
-            setLiveState(prev => {
-              if (!prev) return prev
-              const next = { ...prev }
-              // Timing usa merge profundo para acumular sectores
-              if (msg.topic === 'timing') next.timing = mergeTiming(prev.timing, msg.data)
-              if (msg.topic === 'tyres') next.tyres = msg.data
-              if (msg.topic === 'weather') next.weather = msg.data
-              if (msg.topic === 'race_control') next.race_control = msg.data
-              if (msg.topic === 'session') next.session = msg.data
-              if (msg.topic === 'session_data') next.session_data = { ...prev.session_data, ...msg.data }
-              if (msg.topic === 'track_status') next.track_status = msg.data
-              if (msg.topic === 'timing_stats') next.timing_stats = msg.data
-              return next
-            })
+            // El snapshot inicial se aplica sin demora — es el estado ya consolidado al conectar
+            applyMessage(msg)
+            return
           }
-          setLastUpdate(new Date())
+          // Todo mensaje entra al buffer con el delay total vigente (base + extra acumulado por pausas)
+          const totalDelay = BASE_DELAY_MS + extraDelayRef.current
+          bufferRef.current.push({ msg, releaseAt: Date.now() + totalDelay })
+          setBufferCount(bufferRef.current.length)
         } catch { }
       }
       ws.onclose = () => { setConnected(false); setTimeout(connect, 5000) }
@@ -312,6 +401,17 @@ export default function LiveTimingPage() {
               }}>
               {connected ? '⬤ Conectado' : '◯ Reconectando...'}
             </span>
+            <button
+              onClick={togglePause}
+              className="text-sm font-bold px-3 py-1 rounded-full transition-opacity hover:opacity-80"
+              style={{
+                background: paused ? '#ffd70022' : 'var(--f1-light-gray)',
+                color: paused ? '#ffd700' : 'var(--f1-text)',
+                border: `1px solid ${paused ? '#ffd700' : 'var(--f1-light-gray)'}`,
+              }}
+            >
+              {paused ? `⏸ Pausado (+${bufferCount})` : '⏸ Pausar'}
+            </button>
           </div>
 
           {meetingName && (
@@ -351,6 +451,9 @@ export default function LiveTimingPage() {
               🔄 {lastUpdate.toLocaleTimeString('es-AR')}
             </p>
           )}
+          <p className="text-xs" style={{ color: 'var(--f1-muted)' }}>
+            ⏱ Delay: {delaySeconds}s
+          </p>
         </div>
       </div>
 
