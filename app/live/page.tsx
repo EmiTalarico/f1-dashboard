@@ -7,7 +7,7 @@ const WS_URL = process.env.NEXT_PUBLIC_API_URL?.replace('https://', 'wss://').re
 
 // Delay base: tiempo que retenemos cada mensaje antes de aplicarlo al estado visible.
 // Le da margen a los sectores/minisectores para "completarse" antes de mostrarse.
-const BASE_DELAY_MS = 4000
+const BASE_DELAY_MS = 10000
 
 type DriverTiming = {
   Position?: string
