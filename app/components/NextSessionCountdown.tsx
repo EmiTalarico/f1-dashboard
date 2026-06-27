@@ -8,7 +8,7 @@ function getNextPending(sessions: SessionItem[]): SessionItem | null {
   const now = Date.now()
   for (const s of sessions) {
     const t = new Date(`${s.date}T${s.time}`).getTime()
-    if (t > now) return s
+    if (!isNaN(t) && t > now) return s
   }
   return null
 }
@@ -25,46 +25,90 @@ function diffParts(targetMs: number) {
 }
 
 export default function NextSessionCountdown({ sessions }: { sessions: SessionItem[] }) {
-  const [next, setNext] = useState<SessionItem | null>(() => getNextPending(sessions))
-  const [parts, setParts] = useState(() => next ? diffParts(new Date(`${next.date}T${next.time}`).getTime()) : null)
+  // No calculamos nada dependiente de Date.now() antes de montar en el cliente,
+  // para evitar mismatches de hidratación entre servidor y cliente.
+  const [mounted, setMounted] = useState(false)
+  const [next, setNext] = useState<SessionItem | null>(null)
+  const [parts, setParts] = useState<ReturnType<typeof diffParts>>(null)
 
   useEffect(() => {
+    setMounted(true)
+    const pending = getNextPending(sessions)
+    setNext(pending)
+    setParts(pending ? diffParts(new Date(`${pending.date}T${pending.time}`).getTime()) : null)
+
     const interval = setInterval(() => {
-      const pending = getNextPending(sessions)
-      setNext(pending)
-      if (pending) {
-        setParts(diffParts(new Date(`${pending.date}T${pending.time}`).getTime()))
-      } else {
-        setParts(null)
-      }
+      const p = getNextPending(sessions)
+      setNext(p)
+      setParts(p ? diffParts(new Date(`${p.date}T${p.time}`).getTime()) : null)
     }, 1000)
     return () => clearInterval(interval)
   }, [sessions])
 
+  // Placeholder neutro mientras el cliente no montó — idéntico en servidor y cliente
+  if (!mounted) {
+    return (
+      <div className="flex gap-2.5">
+        {['DÍAS', 'HRS', 'MIN', 'SEG'].map((label) => (
+          <div key={label} className="text-center rounded-xl px-3.5 py-2.5 min-w-[64px]"
+            style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--f1-card-border)' }}>
+            <div className="text-2xl font-black tabular-nums" style={{ color: 'var(--f1-muted)' }}>--</div>
+            <div className="text-[10px] mt-1 font-bold tracking-wider" style={{ color: 'var(--f1-muted)' }}>{label}</div>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
   if (!next || !parts) {
     return (
-      <div className="text-sm font-semibold px-4 py-3 rounded-lg" style={{ background: 'var(--f1-light-gray)', color: 'var(--f1-muted)' }}>
-        Fin de semana completado
+      <div className="text-sm font-semibold px-5 py-4 rounded-xl f1-card" style={{ color: 'var(--f1-muted)' }}>
+        🏁 Fin de semana completado
       </div>
     )
   }
 
   return (
     <div>
-      <p className="text-xs uppercase tracking-widest mb-2 text-right" style={{ color: 'var(--f1-red)' }}>
-        Próxima sesión: {next.label}
-      </p>
-      <div className="flex gap-3">
+      <div className="flex items-center justify-end gap-1.5 mb-2.5">
+        <span className="relative flex h-2 w-2">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: 'var(--f1-red)' }} />
+          <span className="relative inline-flex rounded-full h-2 w-2" style={{ background: 'var(--f1-red)' }} />
+        </span>
+        <p className="f1-label" style={{ color: 'var(--f1-red)' }}>
+          {next.label}
+        </p>
+      </div>
+      <div className="flex gap-2.5">
         {[
-          { value: parts.days, label: 'días' },
-          { value: parts.hours, label: 'horas' },
-          { value: parts.minutes, label: 'min' },
-          { value: parts.seconds, label: 'seg' },
-        ].map(({ value, label }) => (
-          <div key={label} className="text-center rounded-lg px-3 py-2 min-w-[56px]"
-            style={{ background: 'var(--f1-light-gray)' }}>
-            <div className="text-xl font-bold tabular-nums">{String(value).padStart(2, '0')}</div>
-            <div className="text-xs mt-0.5" style={{ color: 'var(--f1-muted)' }}>{label}</div>
+          { value: parts.days, label: 'DÍAS' },
+          { value: parts.hours, label: 'HRS' },
+          { value: parts.minutes, label: 'MIN' },
+          { value: parts.seconds, label: 'SEG' },
+        ].map(({ value, label }, i) => (
+          <div key={label} className="relative text-center rounded-xl px-3.5 py-2.5 min-w-[64px] overflow-hidden"
+            style={{
+              background: 'linear-gradient(160deg, rgba(255,255,255,0.05), rgba(255,255,255,0.01))',
+              border: '1px solid var(--f1-card-border)',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 2px 12px rgba(0,0,0,0.25)',
+            }}
+          >
+            {/* Línea de acento superior, más intensa en el último bloque (segundos) para dar sensación de "vivo" */}
+            <div
+              className="absolute top-0 left-0 right-0 h-[2px]"
+              style={{ background: i === 3 ? 'var(--f1-red)' : 'rgba(225,6,0,0.25)' }}
+            />
+            <div
+              key={value}
+              className="text-2xl font-black tabular-nums f1-tick"
+              style={{
+                color: i === 3 ? 'var(--f1-red)' : 'var(--f1-text)',
+                fontFamily: 'var(--font-geist-mono), monospace',
+              }}
+            >
+              {String(value).padStart(2, '0')}
+            </div>
+            <div className="text-[10px] mt-1 font-bold tracking-wider" style={{ color: 'var(--f1-muted)' }}>{label}</div>
           </div>
         ))}
       </div>

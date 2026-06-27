@@ -26,12 +26,12 @@ type WeatherBySession = Record<string, {
   code: number
 } | null>
 
-const TIMEZONES: { label: string; flag: string; tz: string }[] = [
-  { label: 'Argentina', flag: '🇦🇷', tz: 'America/Argentina/Buenos_Aires' },
-  { label: 'España',    flag: '🇪🇸', tz: 'Europe/Madrid'                  },
-  { label: 'UK',        flag: '🇬🇧', tz: 'Europe/London'                  },
-  { label: 'USA Este',  flag: '🇺🇸', tz: 'America/New_York'               },
-  { label: 'Japón',     flag: '🇯🇵', tz: 'Asia/Tokyo'                     },
+const TIMEZONES: { label: string; code: string; tz: string }[] = [
+  { label: 'Argentina', code: 'ar', tz: 'America/Argentina/Buenos_Aires' },
+  { label: 'España',    code: 'es', tz: 'Europe/Madrid'                  },
+  { label: 'UK',        code: 'gb', tz: 'Europe/London'                  },
+  { label: 'USA Este',  code: 'us', tz: 'America/New_York'               },
+  { label: 'Japón',     code: 'jp', tz: 'Asia/Tokyo'                     },
 ]
 
 const WMO_ICONS: Record<number, string> = {
@@ -121,18 +121,35 @@ function SessionRow({ label, session, weather, isMain = false }: {
   isMain?: boolean
 }) {
   return (
-    <div className="rounded-lg px-4 py-3 mb-2"
-      style={{ background: isMain ? 'var(--f1-light-gray)' : 'var(--f1-gray)' }}>
+    <div
+      className="rounded-xl px-4 py-3 mb-2 transition-all duration-200"
+      style={{
+        background: isMain ? 'rgba(225,6,0,0.08)' : 'rgba(255,255,255,0.02)',
+        border: `1px solid ${isMain ? 'rgba(225,6,0,0.35)' : 'var(--f1-card-border)'}`,
+        boxShadow: isMain ? '0 0 24px rgba(225,6,0,0.12)' : 'none',
+      }}
+    >
       <div className="flex items-center gap-2 mb-2">
-        <span className="text-xs font-bold px-2 py-0.5 rounded-full"
-          style={{ background: isMain ? 'var(--f1-red)' : 'var(--f1-light-gray)', color: '#fff' }}>
+        <span
+          className="text-xs font-bold px-2.5 py-0.5 rounded-full f1-label"
+          style={{
+            background: isMain ? 'var(--f1-red)' : 'var(--f1-light-gray)',
+            color: '#fff',
+            letterSpacing: '0.05em',
+          }}
+        >
           {label}
         </span>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1">
-        {TIMEZONES.map(({ label: tzLabel, flag, tz }) => (
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5">
+        {TIMEZONES.map(({ label: tzLabel, code, tz }) => (
           <div key={tz} className="flex items-center gap-2 text-xs">
-            <span>{flag}</span>
+            <img
+              src={`https://flagcdn.com/w20/${code}.png`}
+              alt={tzLabel}
+              className="w-4 h-3 object-cover rounded-sm shrink-0"
+              style={{ boxShadow: '0 0 0 1px rgba(255,255,255,0.1)' }}
+            />
             <span style={{ color: 'var(--f1-muted)' }}>{tzLabel}:</span>
             <span className="font-medium">{formatInTZ(session.date, session.time, tz)}</span>
           </div>
@@ -148,7 +165,7 @@ export default async function NextRace() {
 
   if (!race) {
     return (
-      <div className="rounded-xl px-6 py-5 mb-6 text-sm" style={{ background: 'var(--f1-gray)', color: 'var(--f1-muted)' }}>
+      <div className="f1-card px-6 py-5 mb-6 text-sm" style={{ color: 'var(--f1-muted)' }}>
         Próxima carrera no disponible momentáneamente
       </div>
     )
@@ -173,7 +190,6 @@ export default async function NextRace() {
     sessions
   )
 
-  // Lista plana para el countdown — solo lo necesario
   const countdownSessions = sessions.map(s => ({
     label: s.label,
     date: s.session.date,
@@ -181,18 +197,24 @@ export default async function NextRace() {
   }))
 
   return (
-    <div className="rounded-xl px-6 py-5 mb-6" style={{ background: 'var(--f1-gray)' }}>
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+    <div className="f1-card px-6 py-6 mb-6 relative overflow-hidden">
+      {/* Glow decorativo de fondo, sutil, anclado arriba-derecha */}
+      <div
+        className="absolute -top-24 -right-24 w-64 h-64 rounded-full pointer-events-none"
+        style={{ background: 'radial-gradient(circle, rgba(225,6,0,0.15), transparent 70%)' }}
+      />
+
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6 relative">
         <div>
-          <p className="text-xs uppercase tracking-widest mb-1" style={{ color: 'var(--f1-red)' }}>
-            Próxima carrera
+          <p className="f1-label mb-1" style={{ color: 'var(--f1-red)' }}>
+            ⏱ Próxima carrera
           </p>
-          <h2 className="text-xl font-bold">{race.raceName}</h2>
+          <h2 className="text-2xl font-extrabold tracking-tight">{race.raceName}</h2>
           <p className="text-sm mt-1" style={{ color: 'var(--f1-muted)' }}>
             {race.Circuit.circuitName} — {race.Circuit.Location.locality}, {race.Circuit.Location.country}
           </p>
           {isSprintWeekend && (
-            <span className="inline-block mt-2 text-xs font-bold px-2 py-0.5 rounded-full"
+            <span className="inline-block mt-2 text-xs font-bold px-2.5 py-1 rounded-full"
               style={{ background: '#f59e0b', color: '#000' }}>
               🏃 Fin de semana Sprint
             </span>
@@ -200,10 +222,15 @@ export default async function NextRace() {
         </div>
         <NextSessionCountdown sessions={countdownSessions} />
       </div>
-      <div>
-        <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--f1-muted)' }}>
-          HORARIOS DEL FIN DE SEMANA
-        </h3>
+
+      <div className="relative">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="f1-divider flex-1" />
+          <h3 className="text-xs font-bold tracking-widest" style={{ color: 'var(--f1-muted)' }}>
+            HORARIOS DEL FIN DE SEMANA
+          </h3>
+          <div className="f1-divider flex-1" />
+        </div>
         {sessions.map(({ label, session, isMain }) => (
           <SessionRow key={label} label={label} session={session} weather={weather} isMain={!!isMain} />
         ))}
