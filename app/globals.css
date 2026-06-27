@@ -1,16 +1,130 @@
 @import "tailwindcss";
 
 :root {
+  /* ── Paleta base (compatibilidad con todo el código existente) ── */
   --f1-red: #e10600;
-  --f1-dark: #0f0f0f;
-  --f1-gray: #1a1a1a;
-  --f1-light-gray: #2a2a2a;
+  --f1-dark: #0a0a0f;
+  --f1-gray: #16161c;
+  --f1-light-gray: #232329;
   --f1-text: #ffffff;
-  --f1-muted: #a0a0a0;
+  --f1-muted: #9a9aa5;
+
+  /* ── Nuevas variables para el lavado de cara (no usadas aún por componentes viejos) ── */
+  --f1-gray-rgb: 22, 22, 28;
+  --f1-red-glow: rgba(225, 6, 0, 0.35);
+  --f1-card-border: rgba(255, 255, 255, 0.06);
+  --f1-card-border-hover: rgba(255, 255, 255, 0.12);
+  --f1-card-gradient: linear-gradient(145deg, #1c1c22 0%, #14141a 100%);
+  --f1-card-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+  --f1-card-shadow-hover: 0 8px 32px rgba(0, 0, 0, 0.45);
+
+  --f1-gold: #ffd700;
+  --f1-silver: #c0c0c8;
+  --f1-bronze: #cd7f32;
+
+  --f1-radius: 16px;
+  --f1-radius-sm: 10px;
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
   background-color: var(--f1-dark);
+  background-image:
+    radial-gradient(circle at 15% 0%, rgba(225, 6, 0, 0.06) 0%, transparent 35%),
+    radial-gradient(circle at 85% 100%, rgba(255, 255, 255, 0.03) 0%, transparent 40%);
+  background-attachment: fixed;
   color: var(--f1-text);
   font-family: var(--font-geist-sans);
 }
+
+/* ── Scrollbar con identidad ── */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--f1-dark);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--f1-light-gray);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--f1-red);
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Clases utilitarias nuevas — opcionales, se van adoptando
+   componente por componente sin romper nada de lo existente.
+   ────────────────────────────────────────────────────────────── */
+
+.f1-card {
+  background: var(--f1-card-gradient);
+  border: 1px solid var(--f1-card-border);
+  border-radius: var(--f1-radius);
+  box-shadow: var(--f1-card-shadow);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.f1-card-interactive {
+  cursor: pointer;
+}
+
+.f1-card-interactive:hover {
+  border-color: var(--f1-card-border-hover);
+  box-shadow: var(--f1-card-shadow-hover);
+  transform: translateY(-2px);
+}
+
+/* Barra lateral de color de equipo/piloto, con glow leve */
+.f1-team-bar {
+  border-left: 3px solid transparent;
+  transition: border-color 0.2s ease;
+}
+
+/* Resalte tipo "activo / en vivo" reutilizable */
+.f1-glow-red {
+  box-shadow: 0 0 0 1px var(--f1-red), 0 0 24px var(--f1-red-glow);
+}
+
+/* Badges de podio */
+.f1-badge-gold {
+  background: linear-gradient(135deg, #ffe066, #d4a700);
+  color: #1a1400;
+}
+.f1-badge-silver {
+  background: linear-gradient(135deg, #e8e8ec, #aaaab2);
+  color: #1a1a1a;
+}
+.f1-badge-bronze {
+  background: linear-gradient(135deg, #e0a868, #a85f2c);
+  color: #1a0f00;
+}
+
+/* Texto con tracking amplio para labels tipo "PRÓXIMA CARRERA" */
+.f1-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* Animación sutil de "tick" para números que cambian (countdown, etc.) */
+@keyframes f1-tick {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+.f1-tick {
+  animation: f1-tick 0.3s ease;
+}
+
+/* Línea divisoria sutil reutilizable */
+.f1-divider {
+  height: 1px;
+  background: var(--f1-card-border);
+}
+/*Primera prueba visual*/
