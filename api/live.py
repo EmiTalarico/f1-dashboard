@@ -99,7 +99,9 @@ def process_message(topic: str, msg):
                 logger.info(f"Nueva sesión detectada: {new_key}")
                 _current_session_key = new_key
                 reset_session_state()
-                asyncio.create_task(fetch_static_stints(msg))
+                # Nota: F1 devuelve 403 en el endpoint estático de TimingAppData
+                # durante la sesión — no vale la pena seguir intentando precargarlo.
+                # Los compuestos se completan solos vía TimingAppData en vivo.
             state["session"] = msg
             notify_listeners("session", msg)
 
@@ -289,44 +291,35 @@ async def start_live_client():
                     state["connected"] = True
                     logger.info("✅ Conectado al feed de F1 — esperando sesión activa")
 
-                    # Ping activo cada 30s para mantener la conexión viva
-                    async def send_ping():
-                        while True:
-                            await asyncio.sleep(30)
-                            try:
-                                await ws.send_str(json.dumps({"type": 6}) + "\x1e")
-                            except Exception:
-                                break
+                    # El heartbeat=30 de aiohttp ya envía pings nativos de WebSocket
+                    # de forma segura. Un ping manual aparte, escribiendo al socket
+                    # desde otra task mientras este loop lee, generaba condiciones
+                    # de carrera que cerraban la conexión sin motivo aparente.
 
-                    ping_task = asyncio.create_task(send_ping())
-
-                    try:
-                        async for msg in ws:
-                            if msg.type == aiohttp.WSMsgType.TEXT:
-                                parts = msg.data.split("\x1e")
-                                for part in parts:
-                                    part = part.strip()
-                                    if not part:
+                    async for msg in ws:
+                        if msg.type == aiohttp.WSMsgType.TEXT:
+                            parts = msg.data.split("\x1e")
+                            for part in parts:
+                                part = part.strip()
+                                if not part:
+                                    continue
+                                try:
+                                    data = json.loads(part)
+                                    msg_type = data.get("type")
+                                    if msg_type == 6:
                                         continue
-                                    try:
-                                        data = json.loads(part)
-                                        msg_type = data.get("type")
-                                        if msg_type == 6:
-                                            continue
-                                        if msg_type == 1:
-                                            target = data.get("target", "")
-                                            args = data.get("arguments", [])
-                                            if target == "feed" and len(args) >= 2:
-                                                process_message(args[0], args[1])
-                                            elif target and args:
-                                                process_message(target, args[0])
-                                    except Exception as e:
-                                        logger.error(f"Error parseando: {e}")
-                            elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
-                                logger.warning(f"WebSocket cerrado: {msg.type}")
-                                break
-                    finally:
-                        ping_task.cancel()
+                                    if msg_type == 1:
+                                        target = data.get("target", "")
+                                        args = data.get("arguments", [])
+                                        if target == "feed" and len(args) >= 2:
+                                            process_message(args[0], args[1])
+                                        elif target and args:
+                                            process_message(target, args[0])
+                                except Exception as e:
+                                    logger.error(f"Error parseando: {e}")
+                        elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+                            logger.warning(f"WebSocket cerrado: {msg.type}")
+                            break
 
         except Exception as e:
             logger.error(f"Desconectado: {e}")
