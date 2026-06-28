@@ -22,6 +22,56 @@ listeners = []
 _current_session_key = None
 _http_session: aiohttp.ClientSession | None = None
 
+# Detector de conflictos: registra qué número de auto tiene cada posición,
+# para detectar en los logs si el feed alguna vez asigna la misma posición
+# a dos autos distintos (o reasigna una posición de forma inconsistente).
+_position_owner: dict[str, str] = {}
+
+# Muestreo de sectores: registra cada N segundos el estado de los segmentos
+# del líder, para poder revisar después (sin haber visto la sesión en vivo)
+# si los minisectores se completaron de forma ordenada o "saltaron" de golpe.
+_last_sector_log_at: float = 0
+_SECTOR_LOG_INTERVAL = 15  # segundos
+
+
+def _check_position_conflict(num: str, position: str):
+    prev_owner = _position_owner.get(position)
+    if prev_owner and prev_owner != num:
+        logger.warning(
+            f"⚠️ CONFLICTO Position={position}: antes #{prev_owner}, ahora #{num}"
+        )
+    _position_owner[position] = num
+
+
+def _log_sector_sample():
+    """Loguea, cada _SECTOR_LOG_INTERVAL segundos, el estado de sectores
+    del líder actual — cantidad de segmentos por sector y sus colores,
+    para auditar después si se completan de forma ordenada."""
+    global _last_sector_log_at
+    import time
+    now = time.time()
+    if now - _last_sector_log_at < _SECTOR_LOG_INTERVAL:
+        return
+    _last_sector_log_at = now
+
+    leader_num = _position_owner.get("1")
+    if not leader_num:
+        return
+    driver = state["timing"].get(leader_num)
+    if not driver or "Sectors" not in driver:
+        return
+
+    summary = {}
+    for s_key, sector in driver["Sectors"].items():
+        segs = sector.get("Segments", {})
+        # Detalle: índices presentes y sus status, ordenados
+        seg_keys = sorted(segs.keys(), key=lambda x: int(x))
+        summary[f"S{int(s_key)+1}"] = {
+            "count": len(segs),
+            "keys": seg_keys,
+        }
+    logger.info(f"🧭 SECTORS líder #{leader_num}: {summary}")
+
 
 def notify_listeners(topic: str, data):
     message = json.dumps({"topic": topic, "data": data})
@@ -42,6 +92,7 @@ def reset_session_state():
     state["session_data"] = {}
     state["track_status"] = {}
     state["timing_stats"] = {}
+    _position_owner.clear()
     logger.info("Estado de sesión reseteado")
 
 
@@ -120,11 +171,14 @@ def process_message(topic: str, msg):
                 if number not in state["timing"]:
                     state["timing"][number] = {}
                 if "Line" in data:
-                    state["timing"][number]["Position"] = str(data["Line"])
+                    pos = str(data["Line"])
+                    _check_position_conflict(number, pos)
+                    state["timing"][number]["Position"] = pos
                 for k, v in data.items():
                     if v is not None and k != "Line":
                         state["timing"][number][k] = v
             notify_listeners("timing", state["timing"])
+            _log_sector_sample()
 
         elif topic == "TimingDataF1":
             lines = msg.get("Lines", {})
@@ -136,9 +190,13 @@ def process_message(topic: str, msg):
                 if number not in state["timing"]:
                     state["timing"][number] = {}
                 if "Line" in data:
-                    state["timing"][number]["Position"] = str(data["Line"])
+                    pos = str(data["Line"])
+                    _check_position_conflict(number, pos)
+                    state["timing"][number]["Position"] = pos
                 if "Position" in data:
-                    state["timing"][number]["Position"] = str(data["Position"])
+                    pos = str(data["Position"])
+                    _check_position_conflict(number, pos)
+                    state["timing"][number]["Position"] = pos
                 for k, v in data.items():
                     if v is not None and k != "Line":
                         state["timing"][number][k] = v
@@ -198,7 +256,9 @@ def process_message(topic: str, msg):
                               "TeamName", "TeamColour", "CountryCode"):
                     if field in data:
                         if field == "Line":
-                            state["timing"][number]["Position"] = str(data["Line"])
+                            pos = str(data["Line"])
+                            _check_position_conflict(number, pos)
+                            state["timing"][number]["Position"] = pos
                         else:
                             state["timing"][number][field] = data[field]
             notify_listeners("timing", state["timing"])
