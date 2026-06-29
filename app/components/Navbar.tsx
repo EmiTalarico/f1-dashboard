@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useState, useEffect } from 'react'
+import { useSidebar } from './SidebarContext'
 
 const NAV_ITEMS = [
   { href: '/',            label: 'Home',       icon: '🏠', ready: true  },
@@ -14,22 +15,9 @@ const NAV_ITEMS = [
   { href: '/live',        label: 'Live',       icon: '🔴', ready: true  },
 ]
 
-export default function Navbar() {
+function NavLinks({ collapsed }: { collapsed: boolean }) {
   const pathname = usePathname()
-  const [collapsed, setCollapsed] = useState(false)
-  const [mobileOpen, setMobileOpen] = useState(false)
-
-  // Cerrar drawer mobile al navegar
-  useEffect(() => { setMobileOpen(false) }, [pathname])
-
-  // Cerrar drawer al presionar Escape
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setMobileOpen(false) }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [])
-
-  const NavLinks = () => (
+  return (
     <>
       {NAV_ITEMS.map(({ href, label, icon, ready }) => {
         const active = pathname === href
@@ -37,21 +25,36 @@ export default function Navbar() {
           <Link
             key={href}
             href={ready ? href : '#'}
-            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-              !ready ? 'opacity-40 cursor-not-allowed' : 'hover:opacity-80'
-            }`}
+            title={collapsed ? label : undefined}
+            className={`relative flex items-center rounded-xl text-sm font-medium transition-all duration-200 ${
+              collapsed ? 'justify-center w-11 h-11 mx-auto' : 'gap-3 px-3.5 py-2.5'
+            } ${!ready ? 'opacity-40 cursor-not-allowed' : 'hover:bg-white/5'}`}
             style={{
-              background: active ? 'var(--f1-light-gray)' : 'transparent',
+              background: active ? 'rgba(225,6,0,0.10)' : 'transparent',
               color: active ? 'var(--f1-red)' : 'var(--f1-text)',
-              borderLeft: active ? '3px solid var(--f1-red)' : '3px solid transparent',
             }}
           >
-            <span className="text-lg shrink-0">{icon}</span>
+            {/* Indicador activo: barra a la izquierda en expandido, anillo en colapsado */}
+            {active && !collapsed && (
+              <span
+                className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-full"
+                style={{ background: 'var(--f1-red)', boxShadow: '0 0 8px var(--f1-red-glow)' }}
+              />
+            )}
+            {active && collapsed && (
+              <span
+                className="absolute inset-0 rounded-xl pointer-events-none"
+                style={{ boxShadow: '0 0 0 1px var(--f1-red), 0 0 12px var(--f1-red-glow)' }}
+              />
+            )}
+
+            <span className="text-lg leading-none shrink-0 relative z-10">{icon}</span>
+
             {!collapsed && (
               <>
-                <span className="truncate">{label}</span>
+                <span className="truncate relative z-10">{label}</span>
                 {!ready && (
-                  <span className="ml-auto text-xs px-1.5 py-0.5 rounded shrink-0"
+                  <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded-full shrink-0 relative z-10"
                     style={{ background: 'var(--f1-light-gray)', color: 'var(--f1-muted)' }}>
                     pronto
                   </span>
@@ -63,45 +66,72 @@ export default function Navbar() {
       })}
     </>
   )
+}
+
+export default function Navbar() {
+  const pathname = usePathname()
+  const { collapsed, setCollapsed } = useSidebar()
+  const [mobileOpen, setMobileOpen] = useState(false)
+
+  useEffect(() => { setMobileOpen(false) }, [pathname])
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setMobileOpen(false) }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
 
   return (
     <>
       {/* ── Sidebar desktop ── */}
       <aside
-        className="hidden md:flex flex-col min-h-screen fixed left-0 top-0 py-6 px-3 gap-1 z-40 transition-all duration-300"
+        className="hidden md:flex flex-col min-h-screen fixed left-0 top-0 py-5 z-40 transition-all duration-300"
         style={{
-          width: collapsed ? '60px' : '220px',
-          background: 'var(--f1-gray)',
-          borderRight: '1px solid var(--f1-light-gray)',
+          width: collapsed ? '76px' : '232px',
+          background: 'linear-gradient(180deg, #16161c 0%, #100f13 100%)',
+          borderRight: '1px solid var(--f1-card-border)',
+          paddingLeft: collapsed ? '0' : '14px',
+          paddingRight: collapsed ? '0' : '14px',
         }}
       >
         {/* Logo + toggle */}
-        <div className="flex items-center justify-between mb-6 px-1">
-          {!collapsed && (
-            <img src="/logoNavbar.png" alt="F1Pasión" className="h-30 w-auto" />
+        <div className={`flex items-center mb-6 ${collapsed ? 'flex-col gap-3 px-2' : 'justify-between px-1'}`}>
+          {!collapsed ? (
+            <img src="/logo-horizontal.png" alt="F1Pasión" className="h-8 w-auto object-contain" />
+          ) : (
+            <img src="/favicon.ico" alt="F1Pasión" className="h-12 w-12 object-contain rounded-md" />
           )}
           <button
-            onClick={() => setCollapsed(c => !c)}
-            className="p-1.5 rounded-lg hover:opacity-70 transition-opacity shrink-0"
-            style={{ color: 'var(--f1-muted)', marginLeft: collapsed ? 'auto' : '0' }}
+            onClick={() => setCollapsed(!collapsed)}
+            className="flex items-center justify-center w-7 h-7 rounded-lg hover:bg-white/5 transition-colors shrink-0"
+            style={{ color: 'var(--f1-muted)' }}
             title={collapsed ? 'Expandir menú' : 'Colapsar menú'}
           >
-            {collapsed ? '▶' : '◀'}
+            <span className="text-xs" style={{ transform: collapsed ? 'rotate(180deg)' : 'none', display: 'inline-block', transition: 'transform 0.2s' }}>
+              ◀
+            </span>
           </button>
         </div>
 
-        <NavLinks />
+        <div className={`f1-divider mb-4 ${collapsed ? 'mx-2' : ''}`} />
+
+        <nav className={`flex flex-col gap-1 ${collapsed ? '' : 'px-0'}`}>
+          <NavLinks collapsed={collapsed} />
+        </nav>
       </aside>
 
       {/* ── Mobile header ── */}
       <header
         className="md:hidden fixed top-0 left-0 right-0 z-40 flex items-center justify-between px-4 py-3"
-        style={{ background: 'var(--f1-gray)', borderBottom: '1px solid var(--f1-light-gray)' }}
+        style={{
+          background: 'linear-gradient(180deg, #16161c 0%, #100f13 100%)',
+          borderBottom: '1px solid var(--f1-card-border)',
+        }}
       >
-        <img src="/logo-horizontal.png" alt="F1Pasión" className="h-8 w-auto" />
+        <img src="/logoNavbar.png" alt="F1Pasión" className="h-7 w-auto object-contain" />
         <button
           onClick={() => setMobileOpen(o => !o)}
-          className="p-2 rounded-lg hover:opacity-70 transition-opacity text-xl"
+          className="flex items-center justify-center w-9 h-9 rounded-lg hover:bg-white/5 transition-colors text-lg"
           style={{ color: 'var(--f1-text)' }}
         >
           {mobileOpen ? '✕' : '☰'}
@@ -111,27 +141,37 @@ export default function Navbar() {
       {/* ── Mobile drawer overlay ── */}
       {mobileOpen && (
         <div
-          className="md:hidden fixed inset-0 z-30"
-          style={{ background: 'rgba(0,0,0,0.6)' }}
+          className="md:hidden fixed inset-0 z-30 transition-opacity"
+          style={{ background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(2px)' }}
           onClick={() => setMobileOpen(false)}
         />
       )}
 
       {/* ── Mobile drawer ── */}
       <div
-        className="md:hidden fixed top-0 left-0 bottom-0 z-40 flex flex-col py-6 px-1 gap-1 transition-transform duration-300"
+        className="md:hidden fixed top-0 left-0 bottom-0 z-40 flex flex-col py-5 px-3.5 gap-1 transition-transform duration-300 overflow-y-auto"
         style={{
-          width: '240px',
-          background: 'var(--f1-gray)',
-          borderRight: '1px solid var(--f1-light-gray)',
+          width: '250px',
+          background: 'linear-gradient(180deg, #16161c 0%, #100f13 100%)',
+          borderRight: '1px solid var(--f1-card-border)',
+          boxShadow: mobileOpen ? '8px 0 32px rgba(0,0,0,0.5)' : 'none',
           transform: mobileOpen ? 'translateX(0)' : 'translateX(-100%)',
         }}
       >
-        <div className="flex items-center justify-between mb-6 px-1">
-          <img src="/logoNavbar.png" alt="F1Pasión" className="h-30 w-auto" />
-          <button onClick={() => setMobileOpen(false)} style={{ color: 'var(--f1-muted)' }}>✕</button>
+        <div className="flex items-center justify-between mb-5 px-1">
+          <img src="/logoNavbar.png" alt="F1Pasión" className="h-7 w-auto object-contain" />
+          <button
+            onClick={() => setMobileOpen(false)}
+            className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-white/5"
+            style={{ color: 'var(--f1-muted)' }}
+          >
+            ✕
+          </button>
         </div>
-        <NavLinks />
+        <div className="f1-divider mb-4" />
+        <nav className="flex flex-col gap-1">
+          <NavLinks collapsed={false} />
+        </nav>
       </div>
     </>
   )

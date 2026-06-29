@@ -2,6 +2,8 @@ import type { Metadata } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import './globals.css'
 import Navbar from './components/Navbar'
+import { SidebarProvider } from './components/SidebarContext'
+import LayoutShell from './components/LayoutShell'
 
 const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] })
 const geistMono = Geist_Mono({ variable: '--font-geist-mono', subsets: ['latin'] })
@@ -16,14 +18,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="es">
       <body className={`${geistSans.variable} ${geistMono.variable}`}>
-        <Navbar />
-        {/*
-          Desktop: margen izquierdo para el sidebar (220px expandido, 60px colapsado)
-          Mobile: padding top para el header fijo
-        */}
-        <div className="md:ml-[220px] pt-16 md:pt-0">
-          {children}
-        </div>
+        <SidebarProvider>
+          <Navbar />
+          <LayoutShell>{children}</LayoutShell>
+        </SidebarProvider>
       </body>
     </html>
   )
