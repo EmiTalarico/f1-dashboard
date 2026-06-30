@@ -11,14 +11,27 @@ type Race = {
   }
   Results?: { Driver: { givenName: string; familyName: string }; Constructor: { name: string } }[]
 }
-//Probando el trigger
-const COUNTRY_FLAGS: Record<string, string> = {
-  Australia: '🇦🇺', Bahrain: '🇧🇭', China: '🇨🇳', Japan: '🇯🇵',
-  'Saudi Arabia': '🇸🇦', USA: '🇺🇸', 'United States': '🇺🇸', Italy: '🇮🇹',
-  Monaco: '🇲🇨', Spain: '🇪🇸', Canada: '🇨🇦', Austria: '🇦🇹',
-  UK: '🇬🇧', 'United Kingdom': '🇬🇧', Hungary: '🇭🇺', Belgium: '🇧🇪',
-  Netherlands: '🇳🇱', Singapore: '🇸🇬', Azerbaijan: '🇦🇿', Mexico: '🇲🇽',
-  Brazil: '🇧🇷', UAE: '🇦🇪', Qatar: '🇶🇦', Portugal: '🇵🇹',
+
+const COUNTRY_CODES: Record<string, string> = {
+  Australia: 'au', Bahrain: 'bh', China: 'cn', Japan: 'jp',
+  'Saudi Arabia': 'sa', USA: 'us', 'United States': 'us', Italy: 'it',
+  Monaco: 'mc', Spain: 'es', Canada: 'ca', Austria: 'at',
+  UK: 'gb', 'United Kingdom': 'gb', Hungary: 'hu', Belgium: 'be',
+  Netherlands: 'nl', Singapore: 'sg', Azerbaijan: 'az', Mexico: 'mx',
+  Brazil: 'br', UAE: 'ae', Qatar: 'qa', Portugal: 'pt',
+}
+
+function CountryFlag({ country }: { country: string }) {
+  const code = COUNTRY_CODES[country]
+  if (!code) return <span className="text-lg shrink-0">🏁</span>
+  return (
+    <img
+      src={`https://flagcdn.com/w40/${code}.png`}
+      alt={country}
+      className="w-7 h-5 object-cover rounded-sm shrink-0"
+      style={{ boxShadow: '0 0 0 1px rgba(255,255,255,0.1)' }}
+    />
+  )
 }
 
 async function getCalendar(): Promise<Race[]> {
@@ -59,7 +72,7 @@ export default async function RaceCalendar() {
 
   if (races.length === 0) {
     return (
-      <div className="px-5 py-8 text-center text-sm rounded-xl" style={{ background: 'var(--f1-gray)', color: 'var(--f1-muted)' }}>
+      <div className="f1-card px-5 py-8 text-center text-sm" style={{ color: 'var(--f1-muted)' }}>
         Calendario no disponible momentáneamente
       </div>
     )
@@ -74,34 +87,39 @@ export default async function RaceCalendar() {
   })
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2.5">
       {races.map((race, i) => {
         const raceDate = new Date(race.date + 'T00:00:00')
         const isPast = raceDate < today
         const isNext = i === nextRaceIndex
-        const flag = COUNTRY_FLAGS[race.Circuit.Location.country] ?? '🏁'
         const winner = race.Results?.[0]
 
         return (
           <Link
             key={race.round}
             href={`/calendario/${race.round}`}
-            className="flex items-center gap-4 px-5 py-4 rounded-xl transition-opacity hover:opacity-80"
+            className="flex items-center gap-4 px-5 py-4 rounded-2xl transition-all duration-200 hover:translate-x-1"
             style={{
-              background: isNext ? 'var(--f1-light-gray)' : 'var(--f1-gray)',
-              opacity: isPast && !isNext ? 0.6 : 1,
-              borderLeft: isNext ? '3px solid var(--f1-red)' : '3px solid transparent',
+              background: isNext
+                ? 'linear-gradient(135deg, rgba(225,6,0,0.10), rgba(225,6,0,0.02))'
+                : 'var(--f1-card-gradient)',
+              border: `1px solid ${isNext ? 'rgba(225,6,0,0.35)' : 'var(--f1-card-border)'}`,
+              boxShadow: isNext ? '0 0 20px rgba(225,6,0,0.10)' : 'var(--f1-card-shadow)',
+              opacity: isPast && !isNext ? 0.55 : 1,
             }}
           >
-            <span className="w-6 text-xs font-mono text-center shrink-0" style={{ color: 'var(--f1-muted)' }}>
-              R{race.round}
+            <span className="w-7 text-xs font-mono font-bold text-center shrink-0 px-1.5 py-1 rounded-md"
+              style={{ background: 'rgba(255,255,255,0.04)', color: 'var(--f1-muted)' }}>
+              {race.round}
             </span>
+
+            <CountryFlag country={race.Circuit.Location.country} />
+
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <span className="text-lg">{flag}</span>
-                <span className="font-semibold truncate">{race.raceName}</span>
+                <span className="font-bold truncate">{race.raceName}</span>
                 {isNext && (
-                  <span className="text-xs font-bold px-2 py-0.5 rounded-full shrink-0"
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 tracking-wide"
                     style={{ background: 'var(--f1-red)', color: '#fff' }}>
                     PRÓXIMA
                   </span>
@@ -111,18 +129,21 @@ export default async function RaceCalendar() {
                 {race.Circuit.circuitName} — {race.Circuit.Location.locality}
               </div>
             </div>
-            <div className="text-right shrink-0 flex items-center gap-2">
+
+            <div className="text-right shrink-0 flex items-center gap-3">
               {isPast && winner ? (
                 <div className="text-right">
                   <div className="text-sm font-bold">
-                    {winner.Driver.givenName[0]}. {winner.Driver.familyName}
+                    🏆 {winner.Driver.givenName[0]}. {winner.Driver.familyName}
                   </div>
                   <div className="text-xs" style={{ color: 'var(--f1-muted)' }}>
                     {winner.Constructor.name}
                   </div>
                 </div>
               ) : (
-                <div className="text-sm font-medium">{formatDate(race.date)}</div>
+                <div className="text-sm font-bold" style={{ color: isNext ? 'var(--f1-red)' : 'inherit' }}>
+                  {formatDate(race.date)}
+                </div>
               )}
               <span style={{ color: 'var(--f1-muted)' }}>›</span>
             </div>
