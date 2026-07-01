@@ -33,7 +33,14 @@ async function getChampionships(constructorId: string) {
 
 function StatCard({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
-    <div className="rounded-lg px-4 py-3 text-center" style={{ background: 'var(--f1-light-gray)' }}>
+    <div
+      className="rounded-2xl px-4 py-3 text-center"
+      style={{
+        background: 'var(--f1-card-gradient)',
+        border: '1px solid var(--f1-card-border)',
+        boxShadow: 'var(--f1-card-shadow)',
+      }}
+    >
       <div className="text-xl font-bold" style={{ color: color ?? 'inherit' }}>{value}</div>
       <div className="text-xs mt-0.5" style={{ color: 'var(--f1-muted)' }}>{label}</div>
     </div>
@@ -54,13 +61,24 @@ export default async function TeamDetailPage({
 
   return (
     <main className="min-h-screen px-4 py-8 max-w-3xl mx-auto">
-      <Link href="/escuderias" className="text-sm mb-6 inline-block hover:opacity-70 transition-opacity" style={{ color: 'var(--f1-muted)' }}>
+      <Link
+        href="/escuderias"
+        className="inline-flex items-center gap-1.5 text-sm mb-6 transition-opacity hover:opacity-70"
+        style={{ color: 'var(--f1-muted)' }}
+      >
         ← Volver a escuderías
       </Link>
 
       {/* Header */}
-      <div className="rounded-xl overflow-hidden mb-6" style={{ background: 'var(--f1-gray)' }}>
-        <div className="h-2" style={{ background: team.color }} />
+      <div
+        className="rounded-2xl overflow-hidden mb-6"
+        style={{
+          background: 'var(--f1-card-gradient)',
+          border: '1px solid var(--f1-card-border)',
+          boxShadow: 'var(--f1-card-shadow)',
+        }}
+      >
+        <div className="h-[3px]" style={{ background: team.color }} />
         <div className="px-6 py-5">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -89,13 +107,25 @@ export default async function TeamDetailPage({
       </div>
 
       {/* Descripción */}
-      <div className="rounded-xl px-5 py-4 mb-6" style={{ background: 'var(--f1-gray)' }}>
+      <div
+        className="rounded-2xl px-5 py-4 mb-6"
+        style={{
+          background: 'var(--f1-card-gradient)',
+          border: '1px solid var(--f1-card-border)',
+        }}
+      >
         <p className="text-sm leading-relaxed" style={{ color: 'var(--f1-muted)' }}>{team.description}</p>
       </div>
 
       {/* Dirección */}
-      <div className="rounded-xl px-5 py-4 mb-6" style={{ background: 'var(--f1-gray)' }}>
-        <h3 className="text-sm font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--f1-muted)' }}>
+      <div
+        className="rounded-2xl px-5 py-4 mb-6"
+        style={{
+          background: 'var(--f1-card-gradient)',
+          border: '1px solid var(--f1-card-border)',
+        }}
+      >
+        <h3 className="text-xs font-bold uppercase tracking-widest mb-3" style={{ color: 'var(--f1-muted)' }}>
           Dirección
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -117,13 +147,19 @@ export default async function TeamDetailPage({
       </div>
 
       {/* Pilotos */}
-      <div className="rounded-xl overflow-hidden mb-6" style={{ background: 'var(--f1-gray)' }}>
-        <div className="px-5 py-3 border-b" style={{ borderColor: 'var(--f1-light-gray)' }}>
-          <h3 className="text-sm font-semibold uppercase tracking-widest" style={{ color: 'var(--f1-muted)' }}>
+      <div
+        className="rounded-2xl overflow-hidden mb-6"
+        style={{
+          background: 'var(--f1-card-gradient)',
+          border: '1px solid var(--f1-card-border)',
+        }}
+      >
+        <div className="px-5 py-3" style={{ borderBottom: '1px solid var(--f1-card-border)' }}>
+          <h3 className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--f1-muted)' }}>
             Pilotos 2026
           </h3>
         </div>
-        <div className="divide-y" style={{ borderColor: 'var(--f1-light-gray)' }}>
+        <div className="divide-y" style={{ borderColor: 'var(--f1-card-border)' }}>
           {team.drivers.map(d => (
             <div key={d.name} className="flex items-center gap-4 px-5 py-4">
               <div
@@ -152,13 +188,23 @@ export default async function TeamDetailPage({
 
       {/* Pilotos reserva */}
       {team.reserveDrivers.length > 0 && (
-        <div className="rounded-xl px-5 py-4 mb-6" style={{ background: 'var(--f1-gray)' }}>
-          <h3 className="text-sm font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--f1-muted)' }}>
+        <div
+          className="rounded-2xl px-5 py-4 mb-6"
+          style={{
+            background: 'var(--f1-card-gradient)',
+            border: '1px solid var(--f1-card-border)',
+          }}
+        >
+          <h3 className="text-xs font-bold uppercase tracking-widest mb-3" style={{ color: 'var(--f1-muted)' }}>
             Pilotos de reserva
           </h3>
           <div className="flex flex-wrap gap-2">
             {team.reserveDrivers.map(name => (
-              <span key={name} className="text-sm px-3 py-1.5 rounded-lg" style={{ background: 'var(--f1-light-gray)' }}>
+              <span
+                key={name}
+                className="text-sm px-3 py-1.5 rounded-lg"
+                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--f1-card-border)' }}
+              >
                 {name}
               </span>
             ))}
@@ -168,8 +214,14 @@ export default async function TeamDetailPage({
 
       {/* Años campeón */}
       {championshipYears.length > 0 && (
-        <div className="rounded-xl px-5 py-4 mb-6" style={{ background: 'var(--f1-gray)' }}>
-          <h3 className="text-sm font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--f1-muted)' }}>
+        <div
+          className="rounded-2xl px-5 py-4 mb-6"
+          style={{
+            background: 'var(--f1-card-gradient)',
+            border: '1px solid var(--f1-card-border)',
+          }}
+        >
+          <h3 className="text-xs font-bold uppercase tracking-widest mb-3" style={{ color: 'var(--f1-muted)' }}>
             Años campeón de constructores
           </h3>
           <div className="flex flex-wrap gap-2">
@@ -188,13 +240,19 @@ export default async function TeamDetailPage({
 
       {/* Últimas carreras */}
       {races.length > 0 && (
-        <div className="rounded-xl overflow-hidden" style={{ background: 'var(--f1-gray)' }}>
-          <div className="px-5 py-3 border-b" style={{ borderColor: 'var(--f1-light-gray)' }}>
-            <h3 className="text-sm font-semibold uppercase tracking-widest" style={{ color: 'var(--f1-muted)' }}>
+        <div
+          className="rounded-2xl overflow-hidden"
+          style={{
+            background: 'var(--f1-card-gradient)',
+            border: '1px solid var(--f1-card-border)',
+          }}
+        >
+          <div className="px-5 py-3" style={{ borderBottom: '1px solid var(--f1-card-border)' }}>
+            <h3 className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--f1-muted)' }}>
               Resultados 2026
             </h3>
           </div>
-          <div className="divide-y" style={{ borderColor: 'var(--f1-light-gray)' }}>
+          <div className="divide-y" style={{ borderColor: 'var(--f1-card-border)' }}>
             {races.map((race: any) => {
               const teamResults = race.Results?.filter((r: any) =>
                 r.Constructor.constructorId === constructorId
@@ -205,7 +263,7 @@ export default async function TeamDetailPage({
                     <span className="text-sm font-semibold">{race.raceName}</span>
                     <Link
                       href={`/resultados/2026/${race.round}`}
-                      className="text-xs hover:opacity-70"
+                      className="text-xs hover:opacity-70 transition-opacity"
                       style={{ color: team.color }}
                     >
                       Ver completo →

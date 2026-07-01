@@ -43,11 +43,15 @@ export default async function EscuderiasPage() {
           <Link
             key={team.constructorId}
             href={`/escuderias/${team.constructorId}`}
-            className="block rounded-xl overflow-hidden hover:opacity-80 transition-opacity"
-            style={{ background: 'var(--f1-gray)' }}
+            className="block rounded-2xl overflow-hidden transition-all duration-200 hover:translate-y-[-2px]"
+            style={{
+              background: 'var(--f1-card-gradient)',
+              border: '1px solid var(--f1-card-border)',
+              boxShadow: 'var(--f1-card-shadow)',
+            }}
           >
             {/* Color bar */}
-            <div className="h-1" style={{ background: team.color }} />
+            <div className="h-[3px]" style={{ background: team.color }} />
 
             <div className="px-5 py-4">
               <div className="flex items-start justify-between gap-4 mb-3">
@@ -76,7 +80,7 @@ export default async function EscuderiasPage() {
                   <div
                     key={d.name}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs"
-                    style={{ background: 'var(--f1-light-gray)' }}
+                    style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--f1-card-border)' }}
                   >
                     <span>{d.flag}</span>
                     <span className="font-medium">{d.name.split(' ').slice(-1)[0]}</span>
