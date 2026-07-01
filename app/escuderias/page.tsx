@@ -1,6 +1,32 @@
 import Link from 'next/link'
 import { TEAMS } from '../data/teams'
 
+const NATIONALITY_CODES: Record<string, string> = {
+  // nacionalidades en español (drivers)
+  Británico: 'gb', Italiano: 'it', Neerlandés: 'nl', Francés: 'fr',
+  Español: 'es', Australiano: 'au', Mexicano: 'mx', Finlandés: 'fi',
+  Alemán: 'de', Canadiense: 'ca', Tailandés: 'th', Japonés: 'jp',
+  Brasileño: 'br', Argentino: 'ar', Estadounidense: 'us', Danés: 'dk',
+  Chino: 'cn', Austriaco: 'at', Neozelandés: 'nz', Belga: 'be',
+  Polaco: 'pl', Ruso: 'ru', Sueco: 'se', Monegasco: 'mc',
+  // nacionalidades en inglés (teams)
+  British: 'gb', Italian: 'it', Dutch: 'nl', German: 'de',
+  French: 'fr', Austrian: 'at', American: 'us',
+}
+
+function Flag({ nationality, size = 'sm' }: { nationality: string; size?: 'sm' | 'md' }) {
+  const code = NATIONALITY_CODES[nationality]
+  if (!code) return null
+  return (
+    <img
+      src={`https://flagcdn.com/w40/${code}.png`}
+      alt={nationality}
+      className={size === 'sm' ? 'w-5 h-3.5 object-cover rounded-sm' : 'w-7 h-5 object-cover rounded-sm'}
+      style={{ boxShadow: '0 0 0 1px rgba(255,255,255,0.1)' }}
+    />
+  )
+}
+
 async function getConstructorStandings() {
   try {
     const res = await fetch(
@@ -57,7 +83,7 @@ export default async function EscuderiasPage() {
               <div className="flex items-start justify-between gap-4 mb-3">
                 <div>
                   <div className="flex items-center gap-2 mb-0.5">
-                    <span>{team.flag}</span>
+                    <Flag nationality={team.nationality} size="md" />
                     <h2 className="font-bold text-lg">{team.name}</h2>
                   </div>
                   <p className="text-xs" style={{ color: 'var(--f1-muted)' }}>{team.fullName}</p>
@@ -82,7 +108,7 @@ export default async function EscuderiasPage() {
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs"
                     style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--f1-card-border)' }}
                   >
-                    <span>{d.flag}</span>
+                    <Flag nationality={d.nationality} size="sm" />
                     <span className="font-medium">{d.name.split(' ').slice(-1)[0]}</span>
                     <span style={{ color: 'var(--f1-muted)' }}>#{d.number}</span>
                   </div>

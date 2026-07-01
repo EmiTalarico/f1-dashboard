@@ -2,6 +2,34 @@ import Link from 'next/link'
 import { TEAMS } from '../../data/teams'
 import { notFound } from 'next/navigation'
 
+const NATIONALITY_CODES: Record<string, string> = {
+  Británico: 'gb', Italiano: 'it', Neerlandés: 'nl', Francés: 'fr',
+  Español: 'es', Australiano: 'au', Mexicano: 'mx', Finlandés: 'fi',
+  Alemán: 'de', Canadiense: 'ca', Tailandés: 'th', Japonés: 'jp',
+  Brasileño: 'br', Argentino: 'ar', Estadounidense: 'us', Danés: 'dk',
+  Chino: 'cn', Austriaco: 'at', Neozelandés: 'nz', Belga: 'be',
+  Polaco: 'pl', Ruso: 'ru', Sueco: 'se', Monegasco: 'mc',
+  British: 'gb', Italian: 'it', Dutch: 'nl', German: 'de',
+  French: 'fr', Austrian: 'at', American: 'us',
+}
+
+function Flag({ nationality, size = 'sm' }: { nationality: string; size?: 'sm' | 'md' | 'lg' }) {
+  const code = NATIONALITY_CODES[nationality]
+  if (!code) return null
+  const cls =
+    size === 'lg' ? 'h-6 w-auto rounded-sm' :
+    size === 'md' ? 'w-7 h-5 object-cover rounded-sm' :
+    'w-5 h-3.5 object-cover rounded-sm'
+  return (
+    <img
+      src={`https://flagcdn.com/w40/${code}.png`}
+      alt={nationality}
+      className={cls}
+      style={{ boxShadow: '0 0 0 1px rgba(255,255,255,0.1)' }}
+    />
+  )
+}
+
 async function getConstructorData(constructorId: string) {
   const [standingsRes, racesRes] = await Promise.all([
     fetch(`https://api.jolpi.ca/ergast/f1/2026/constructorStandings.json`, { next: { revalidate: 3600 } }),
@@ -82,8 +110,8 @@ export default async function TeamDetailPage({
         <div className="px-6 py-5">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-3xl">{team.flag}</span>
+              <div className="flex items-center gap-3 mb-1">
+                <Flag nationality={team.nationality} size="lg" />
                 <h1 className="text-2xl font-black">{team.name}</h1>
               </div>
               <p className="text-sm" style={{ color: 'var(--f1-muted)' }}>{team.fullName}</p>
@@ -109,10 +137,7 @@ export default async function TeamDetailPage({
       {/* Descripción */}
       <div
         className="rounded-2xl px-5 py-4 mb-6"
-        style={{
-          background: 'var(--f1-card-gradient)',
-          border: '1px solid var(--f1-card-border)',
-        }}
+        style={{ background: 'var(--f1-card-gradient)', border: '1px solid var(--f1-card-border)' }}
       >
         <p className="text-sm leading-relaxed" style={{ color: 'var(--f1-muted)' }}>{team.description}</p>
       </div>
@@ -120,10 +145,7 @@ export default async function TeamDetailPage({
       {/* Dirección */}
       <div
         className="rounded-2xl px-5 py-4 mb-6"
-        style={{
-          background: 'var(--f1-card-gradient)',
-          border: '1px solid var(--f1-card-border)',
-        }}
+        style={{ background: 'var(--f1-card-gradient)', border: '1px solid var(--f1-card-border)' }}
       >
         <h3 className="text-xs font-bold uppercase tracking-widest mb-3" style={{ color: 'var(--f1-muted)' }}>
           Dirección
@@ -149,10 +171,7 @@ export default async function TeamDetailPage({
       {/* Pilotos */}
       <div
         className="rounded-2xl overflow-hidden mb-6"
-        style={{
-          background: 'var(--f1-card-gradient)',
-          border: '1px solid var(--f1-card-border)',
-        }}
+        style={{ background: 'var(--f1-card-gradient)', border: '1px solid var(--f1-card-border)' }}
       >
         <div className="px-5 py-3" style={{ borderBottom: '1px solid var(--f1-card-border)' }}>
           <h3 className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--f1-muted)' }}>
@@ -170,7 +189,7 @@ export default async function TeamDetailPage({
               </div>
               <div className="flex-1">
                 <div className="flex items-center gap-2">
-                  <span>{d.flag}</span>
+                  <Flag nationality={d.nationality} size="sm" />
                   <span className="font-bold">{d.name}</span>
                 </div>
                 <p className="text-xs mt-0.5" style={{ color: 'var(--f1-muted)' }}>{d.nationality}</p>
@@ -190,10 +209,7 @@ export default async function TeamDetailPage({
       {team.reserveDrivers.length > 0 && (
         <div
           className="rounded-2xl px-5 py-4 mb-6"
-          style={{
-            background: 'var(--f1-card-gradient)',
-            border: '1px solid var(--f1-card-border)',
-          }}
+          style={{ background: 'var(--f1-card-gradient)', border: '1px solid var(--f1-card-border)' }}
         >
           <h3 className="text-xs font-bold uppercase tracking-widest mb-3" style={{ color: 'var(--f1-muted)' }}>
             Pilotos de reserva
@@ -216,10 +232,7 @@ export default async function TeamDetailPage({
       {championshipYears.length > 0 && (
         <div
           className="rounded-2xl px-5 py-4 mb-6"
-          style={{
-            background: 'var(--f1-card-gradient)',
-            border: '1px solid var(--f1-card-border)',
-          }}
+          style={{ background: 'var(--f1-card-gradient)', border: '1px solid var(--f1-card-border)' }}
         >
           <h3 className="text-xs font-bold uppercase tracking-widest mb-3" style={{ color: 'var(--f1-muted)' }}>
             Años campeón de constructores
@@ -242,10 +255,7 @@ export default async function TeamDetailPage({
       {races.length > 0 && (
         <div
           className="rounded-2xl overflow-hidden"
-          style={{
-            background: 'var(--f1-card-gradient)',
-            border: '1px solid var(--f1-card-border)',
-          }}
+          style={{ background: 'var(--f1-card-gradient)', border: '1px solid var(--f1-card-border)' }}
         >
           <div className="px-5 py-3" style={{ borderBottom: '1px solid var(--f1-card-border)' }}>
             <h3 className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--f1-muted)' }}>
