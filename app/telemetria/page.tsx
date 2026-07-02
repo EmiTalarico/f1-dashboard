@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, Fragment } from 'react'
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceArea } from 'recharts'
 
 const API = process.env.NEXT_PUBLIC_API_URL
 const CURRENT_YEAR = 2026
@@ -16,7 +16,6 @@ const SESSIONS = [
   { value: 'FP3', label: 'Práctica 3' },
 ]
 
-// Paleta de colores alternativos para cuando dos pilotos del mismo equipo son seleccionados
 const ALT_COLORS = ['#e10600', '#60a5fa', '#facc15', '#a78bfa']
 
 type Race = { round: string; raceName: string; date: string }
@@ -40,77 +39,120 @@ type SessionData = {
   results: Result[]
 }
 
+type TelemetryData = {
+  distance: number[]
+  speed: number[]
+  throttle: number[]
+  brake: boolean[]
+  gear: number[]
+  drs: number[]
+}
+
 type DriverTelemetry = {
   driver: string
   fullName: string
   teamColor: string
   displayColor: string
   lapTime: string
-  data: {
-    distance: number[]
-    speed: number[]
-    throttle: number[]
-    brake: boolean[]
-    gear: number[]
-    drs: number[]
-  }
+  data: TelemetryData
 }
 
-// Parsea "0 days 00:01:25.065000" → "1:25.065"
-// Parsea "0 days 00:00:08.481000" → "+8.481s"
-// Parsea "0 days 01:42:06.304000" → "1:42:06"
+type BrakeZone = { x1: number; x2: number }
+
+type DriverStats = { maxSpeed: number; minSpeed: number; throttlePct: number; brakeCount: number; lapKm: number }
+
 function parsePandasTime(raw: string | null): string {
   if (!raw) return '—'
-
   const match = raw.match(/(\d+) days (\d+):(\d+):(\d+)\.?(\d*)/)
   if (!match) return raw
-
   const [, , hStr, mStr, sStr, msStr] = match
   const h = parseInt(hStr)
   const m = parseInt(mStr)
   const s = parseInt(sStr)
   const ms = msStr ? msStr.slice(0, 3).padEnd(3, '0') : '000'
-
-  // Tiempo de carrera del ganador (horas > 0)
   if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-
-  // Gap (minutos = 0, segundos pequeños)
   if (m === 0) return `+${s}.${ms}s`
-
-  // Tiempo de vuelta o gap > 1 minuto
   return `${m}:${String(s).padStart(2, '0')}.${ms}`
 }
 
-function stripGP(name: string) {
+function stripGP(name: string): string {
   return name.replace(/Grand Prix/gi, '').replace(/Gran Premio/gi, '').trim()
 }
 
-// Asigna colores a los pilotos seleccionados evitando repetir colores del mismo equipo
+function calcStats(t: DriverTelemetry): DriverStats {
+  const speeds = t.data.speed.filter(v => v > 0)
+  const maxSpeed = Math.round(Math.max(...speeds))
+  const minSpeed = Math.round(Math.min(...speeds))
+  const throttlePoints = t.data.throttle.filter(v => v >= 95).length
+  const throttlePct = Math.round((throttlePoints / t.data.throttle.length) * 100)
+  // Contar zonas de frenada
+  let brakeCount = 0
+  let inBrake = false
+  t.data.brake.forEach(b => {
+    if (b && !inBrake) { inBrake = true; brakeCount++ }
+    else if (!b && inBrake) { inBrake = false }
+  })
+  // Distancia total en km
+  const lapKm = parseFloat((t.data.distance[t.data.distance.length - 1] / 1000).toFixed(2))
+  return { maxSpeed, minSpeed, throttlePct, brakeCount, lapKm }
+}
+
+function getBrakeZones(t: DriverTelemetry): BrakeZone[] {
+  const zones: BrakeZone[] = []
+  let inBrake = false
+  let start = 0
+  t.data.brake.forEach((b, i) => {
+    const dist = Math.round(t.data.distance[i])
+    if (b && !inBrake) { inBrake = true; start = dist }
+    else if (!b && inBrake) { inBrake = false; zones.push({ x1: start, x2: dist }) }
+  })
+  if (inBrake) zones.push({ x1: start, x2: Math.round(t.data.distance[t.data.distance.length - 1]) })
+  return zones
+}
+
+// Divide la vuelta en 3 sectores y calcula avg speed por sector por piloto
+function calcSectors(drivers: DriverTelemetry[]): Record<string, number[]> {
+  if (drivers.length === 0) return {}
+  const totalDist = drivers[0].data.distance[drivers[0].data.distance.length - 1]
+  const s1end = totalDist / 3
+  const s2end = (totalDist / 3) * 2
+  const result: Record<string, number[]> = {}
+  drivers.forEach(t => {
+    const sectors = [0, 1, 2].map(sec => {
+      const sectorSpeeds = t.data.speed.filter((_, i) => {
+        const d = t.data.distance[i]
+        if (sec === 0) return d < s1end
+        if (sec === 1) return d >= s1end && d < s2end
+        return d >= s2end
+      })
+      return sectorSpeeds.length > 0
+        ? Math.round(sectorSpeeds.reduce((a, b) => a + b, 0) / sectorSpeeds.length)
+        : 0
+    })
+    result[t.driver] = sectors
+  })
+  return result
+}
+
 function assignDisplayColors(
   selectedDrivers: string[],
   sessionResults: Result[],
-  telemetryMap: Record<string, DriverTelemetry>
 ): Record<string, string> {
   const colorMap: Record<string, string> = {}
   const usedColors = new Set<string>()
-
   selectedDrivers.forEach((driverId, idx) => {
     const result = sessionResults.find(r => r.driver === driverId)
     if (!result) return
-
     const teamColor = result.teamColor
-    // Si el color del equipo no fue usado todavía, úsalo
     if (!usedColors.has(teamColor)) {
       colorMap[driverId] = teamColor
       usedColors.add(teamColor)
     } else {
-      // Buscar un color alternativo que no esté en uso
       const alt = ALT_COLORS.find(c => !usedColors.has(c)) ?? ALT_COLORS[idx % ALT_COLORS.length]
       colorMap[driverId] = alt
       usedColors.add(alt)
     }
   })
-
   return colorMap
 }
 
@@ -121,11 +163,7 @@ const CARD = {
 } as const
 
 function Dropdown({
-  label,
-  value,
-  options,
-  onChange,
-  disabled,
+  label, value, options, onChange, disabled,
 }: {
   label: string
   value: string | number
@@ -226,7 +264,6 @@ export default function TelemetriaPage() {
     setSessionData(null)
     setSelectedDrivers([])
     setTelemetryMap({})
-
     fetch(`https://api.jolpi.ca/ergast/f1/${year}.json`)
       .then(r => r.json())
       .then(data => {
@@ -246,7 +283,6 @@ export default function TelemetriaPage() {
     setSessionData(null)
     setSelectedDrivers([])
     setTelemetryMap({})
-
     fetch(`${API}/session/${year}/${round}/${session}`)
       .then(r => r.json())
       .then(data => {
@@ -259,55 +295,38 @@ export default function TelemetriaPage() {
 
   function toggleDriver(r: Result) {
     const isSelected = selectedDrivers.includes(r.driver)
-
     if (isSelected) {
       setSelectedDrivers(prev => prev.filter(d => d !== r.driver))
-      setTelemetryMap(prev => {
-        const next = { ...prev }
-        delete next[r.driver]
-        return next
-      })
+      setTelemetryMap(prev => { const next = { ...prev }; delete next[r.driver]; return next })
       return
     }
-
     if (selectedDrivers.length >= MAX_DRIVERS) return
-
-    const newSelected = [...selectedDrivers, r.driver]
-    setSelectedDrivers(newSelected)
+    setSelectedDrivers(prev => [...prev, r.driver])
     setLoadingDrivers(prev => new Set(prev).add(r.driver))
-
     fetch(`${API}/telemetry/${year}/${round}/${r.driver}?session=${session}`)
       .then(res => res.json())
       .then(data => {
         if (!data.detail) {
-          setTelemetryMap(prev => {
-            const next = {
-              ...prev,
-              [r.driver]: {
-                driver: r.driver,
-                fullName: r.fullName,
-                teamColor: r.teamColor,
-                displayColor: r.teamColor, // se recalcula abajo
-                lapTime: parsePandasTime(data.lapTime),
-                data: data.telemetry,
-              },
-            }
-            return next
-          })
+          setTelemetryMap(prev => ({
+            ...prev,
+            [r.driver]: {
+              driver: r.driver,
+              fullName: r.fullName,
+              teamColor: r.teamColor,
+              displayColor: r.teamColor,
+              lapTime: parsePandasTime(data.lapTime),
+              data: data.telemetry,
+            },
+          }))
         }
       })
       .finally(() => {
-        setLoadingDrivers(prev => {
-          const next = new Set(prev)
-          next.delete(r.driver)
-          return next
-        })
+        setLoadingDrivers(prev => { const next = new Set(prev); next.delete(r.driver); return next })
       })
   }
 
-  // Recalcular displayColors cuando cambia la selección
   const displayColors = sessionData
-    ? assignDisplayColors(selectedDrivers, sessionData.results, telemetryMap)
+    ? assignDisplayColors(selectedDrivers, sessionData.results)
     : {}
 
   const allTelemetry = selectedDrivers
@@ -329,16 +348,15 @@ export default function TelemetriaPage() {
     : []
 
   const hasDRS = allTelemetry.some(t => t.data.drs.some(v => v > 9))
-
+  const hasCharts = allTelemetry.length > 0 && chartData.length > 0
+  const isLoading = loadingDrivers.size > 0
   const today = new Date()
+
   const raceOptions = races.map(r => ({
     value: r.round,
     label: stripGP(r.raceName),
     muted: new Date(r.date + 'T00:00:00') >= today,
   }))
-
-  const hasCharts = allTelemetry.length > 0 && chartData.length > 0
-  const isLoading = loadingDrivers.size > 0
 
   const tooltipStyle = {
     background: '#1a1a1a',
@@ -346,6 +364,9 @@ export default function TelemetriaPage() {
     fontSize: 12,
     borderRadius: 8,
   }
+
+  // Zonas de frenada del primer piloto seleccionado
+  const brakeZones: BrakeZone[] = allTelemetry.length > 0 ? getBrakeZones(allTelemetry[0]) : []
 
   return (
     <main className="min-h-screen px-4 py-8 max-w-5xl mx-auto">
@@ -514,22 +535,124 @@ export default function TelemetriaPage() {
       {/* Gráficos */}
       {hasCharts && (
         <div className="rounded-2xl px-5 py-5" style={CARD}>
+
           {/* Leyenda */}
-          <div className="flex flex-wrap gap-4 mb-6 pb-4" style={{ borderBottom: '1px solid var(--f1-card-border)' }}>
-            {allTelemetry.map(t => (
-              <div key={t.driver} className="flex items-center gap-2">
-                <div className="w-8 h-0.5 rounded-full" style={{ background: t.displayColor }} />
-                <span className="text-sm font-semibold">{t.fullName}</span>
-                <span className="text-xs font-mono px-2 py-0.5 rounded" style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--f1-muted)' }}>
-                  {t.lapTime}
+          <div className="mb-5 pb-4" style={{ borderBottom: '1px solid var(--f1-card-border)' }}>
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--f1-muted)' }}>
+                {SESSIONS.find(s => s.value === session)?.label}
+              </span>
+              {allTelemetry[0] && (
+                <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--f1-muted)' }}>
+                  {calcStats(allTelemetry[0]).lapKm} km
                 </span>
-              </div>
-            ))}
+              )}
+            </div>
+            <div className="flex flex-wrap gap-4">
+              {allTelemetry.map(t => (
+                <div key={t.driver} className="flex items-center gap-2">
+                  <div className="w-8 h-0.5 rounded-full" style={{ background: t.displayColor }} />
+                  <span className="text-sm font-semibold">{t.fullName}</span>
+                  <span className="text-xs font-mono px-2 py-0.5 rounded" style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--f1-muted)' }}>
+                    {t.lapTime}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
 
+          {/* Stats por piloto */}
+          <div
+            className="grid gap-3 mb-6"
+            style={{ gridTemplateColumns: `repeat(${allTelemetry.length}, 1fr)` }}
+          >
+            {allTelemetry.map(t => {
+              const s = calcStats(t)
+              return (
+                <div
+                  key={t.driver}
+                  className="rounded-xl px-4 py-3"
+                  style={{
+                    background: 'rgba(255,255,255,0.03)',
+                    border: `1px solid ${t.displayColor}30`,
+                  }}
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-2 h-2 rounded-full shrink-0" style={{ background: t.displayColor }} />
+                    <span className="text-xs font-bold truncate" style={{ color: t.displayColor }}>
+                      {t.fullName.split(' ').slice(-1)[0]}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-1 text-center">
+                    <div>
+                      <div className="text-base font-black">{s.maxSpeed}</div>
+                      <div className="text-xs" style={{ color: 'var(--f1-muted)' }}>km/h máx</div>
+                    </div>
+                    <div>
+                      <div className="text-base font-black">{s.minSpeed}</div>
+                      <div className="text-xs" style={{ color: 'var(--f1-muted)' }}>km/h mín</div>
+                    </div>
+                    <div>
+                      <div className="text-base font-black" style={{ color: '#22c55e' }}>{s.throttlePct}%</div>
+                      <div className="text-xs" style={{ color: 'var(--f1-muted)' }}>a fondo</div>
+                    </div>
+                    <div>
+                      <div className="text-base font-black">{s.brakeCount}</div>
+                      <div className="text-xs" style={{ color: 'var(--f1-muted)' }}>frenadas</div>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Sectores */}
+          {allTelemetry.length > 0 && (() => {
+            const sectors = calcSectors(allTelemetry)
+            const sectorLabels = ['Sector 1', 'Sector 2', 'Sector 3']
+            return (
+              <div className="mb-6">
+                <p className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: 'var(--f1-muted)' }}>
+                  Velocidad media por sector
+                  <span className="ml-2 normal-case font-normal">· verde = más rápido</span>
+                </p>
+                <div className="grid grid-cols-3 gap-3">
+                  {sectorLabels.map((label, si) => {
+                    const vals = allTelemetry.map(t => ({ driver: t.driver, fullName: t.fullName, displayColor: t.displayColor, val: sectors[t.driver]?.[si] ?? 0 }))
+                    const maxVal = Math.max(...vals.map(v => v.val))
+                    return (
+                      <div key={label} className="rounded-xl px-4 py-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--f1-card-border)' }}>
+                        <div className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: 'var(--f1-muted)' }}>{label}</div>
+                        {vals.map(v => (
+                          <div key={v.driver} className="flex items-center justify-between gap-2 mb-1">
+                            <div className="flex items-center gap-1.5">
+                              <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: v.displayColor }} />
+                              <span className="text-xs" style={{ color: 'var(--f1-muted)' }}>{v.fullName.split(' ').slice(-1)[0]}</span>
+                            </div>
+                            <span
+                              className="text-xs font-bold font-mono"
+                              style={{ color: v.val === maxVal ? '#22c55e' : 'inherit' }}
+                            >
+                              {v.val} km/h
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })()}
+
           {/* Velocidad */}
-          <p className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: 'var(--f1-muted)' }}>Velocidad (km/h)</p>
-          <ResponsiveContainer width="100%" height={180}>
+          <p className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: 'var(--f1-muted)' }}>
+            Velocidad (km/h)
+            <span className="ml-2 normal-case font-normal" style={{ color: 'rgba(248,113,113,0.7)' }}>
+              · zonas rojas = frenada de {allTelemetry[0]?.fullName.split(' ').slice(-1)[0]}
+            </span>
+          </p>
+          <ResponsiveContainer width="100%" height={200}>
             <LineChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
               <XAxis dataKey="dist" tick={{ fontSize: 10, fill: '#a0a0a0' }} tickFormatter={v => `${v}m`} />
@@ -537,8 +660,11 @@ export default function TelemetriaPage() {
               <Tooltip contentStyle={tooltipStyle} formatter={(v: any, name: any) => {
                 const key = String(name ?? '').replace('speed_', '')
                 const t = allTelemetry.find(t => t.driver === key)
-                return [v, t?.fullName ?? key]
+                return [`${v} km/h`, t?.fullName ?? key]
               }} />
+              {brakeZones.map((z, i) => (
+                <ReferenceArea key={i} x1={z.x1} x2={z.x2} fill="rgba(248,113,113,0.10)" stroke="none" />
+              ))}
               {allTelemetry.map(t => (
                 <Line key={t.driver} type="monotone" dataKey={`speed_${t.driver}`} stroke={t.displayColor} dot={false} strokeWidth={2} />
               ))}
@@ -546,7 +672,10 @@ export default function TelemetriaPage() {
           </ResponsiveContainer>
 
           {/* Acelerador y freno */}
-          <p className="text-xs font-bold uppercase tracking-wider mt-8 mb-3" style={{ color: 'var(--f1-muted)' }}>Acelerador / Freno (%)</p>
+          <p className="text-xs font-bold uppercase tracking-wider mt-8 mb-3" style={{ color: 'var(--f1-muted)' }}>
+            Acelerador / Freno (%)
+            <span className="ml-2 normal-case font-normal" style={{ color: 'var(--f1-muted)' }}>· sólido = acelerador, punteado = freno</span>
+          </p>
           <ResponsiveContainer width="100%" height={140}>
             <LineChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
@@ -557,7 +686,7 @@ export default function TelemetriaPage() {
                 const type = parts[0]
                 const driverKey = parts.slice(1).join('_')
                 const t = allTelemetry.find(t => t.driver === driverKey)
-                return [v, `${t?.fullName ?? driverKey} (${type === 'throttle' ? 'Acelerador' : 'Freno'})`]
+                return [`${v}%`, `${t?.fullName ?? driverKey} — ${type === 'throttle' ? 'Acelerador' : 'Freno'}`]
               }} />
               {allTelemetry.map(t => (
                 <Fragment key={t.driver}>
@@ -598,7 +727,7 @@ export default function TelemetriaPage() {
                   <Tooltip contentStyle={tooltipStyle} formatter={(v: any, name: any) => {
                     const key = String(name ?? '').replace('drs_', '')
                     const t = allTelemetry.find(t => t.driver === key)
-                    return [v > 0 ? 'Abierto' : 'Cerrado', t?.fullName ?? key]
+                    return [Number(v) > 0 ? 'Abierto' : 'Cerrado', t?.fullName ?? key]
                   }} />
                   {allTelemetry.map(t => (
                     <Line key={t.driver} type="stepAfter" dataKey={`drs_${t.driver}`} stroke={t.displayColor} dot={false} strokeWidth={2} />
