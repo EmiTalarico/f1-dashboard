@@ -23,12 +23,12 @@ const PODIUM_CLASS: Record<string, string> = {
 
 // Standings Austria 2026 — Round 8
 const FALLBACK_CONSTRUCTORS = [
-  { position: '1',  name: 'Mercedes',     nationality: 'German',  points: '302', wins: '7' },
-  { position: '2',  name: 'Ferrari',      nationality: 'Italian', points: '204', wins: '1' },
-  { position: '3',  name: 'McLaren',      nationality: 'British', points: '159', wins: '0' },
-  { position: '4',  name: 'Red Bull Racing', nationality: 'Austrian', points: '115', wins: '0' },
+  { position: '1',  name: 'Mercedes',     nationality: 'German',  points: '315', wins: '7' },
+  { position: '2',  name: 'Ferrari',      nationality: 'Italian', points: '215', wins: '1' },
+  { position: '3',  name: 'McLaren',      nationality: 'British', points: '167', wins: '0' },
+  { position: '4',  name: 'Red Bull Racing', nationality: 'Austrian', points: '118', wins: '0' },
   { position: '5',  name: 'Alpine',       nationality: 'French',  points: '57',  wins: '0' },
-  { position: '6',  name: 'Racing Bulls', nationality: 'Italian', points: '44',  wins: '0' },
+  { position: '6',  name: 'Racing Bulls', nationality: 'Italian', points: '45',  wins: '0' },
   { position: '7',  name: 'Haas',         nationality: 'American', points: '21', wins: '0' },
   { position: '8',  name: 'Williams',     nationality: 'British', points: '11',  wins: '0' },
   { position: '9',  name: 'Audi',         nationality: 'German',  points: '2',   wins: '0' },
