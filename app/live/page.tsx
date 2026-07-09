@@ -4,10 +4,16 @@ import { useState, useEffect, useRef } from 'react'
 import { F1_DRIVERS } from '../data/f1drivers'
 
 const WS_URL = process.env.NEXT_PUBLIC_API_URL?.replace('https://', 'wss://').replace('http://', 'ws://') + '/ws/live'
-
-// Delay base: tiempo que retenemos cada mensaje antes de aplicarlo al estado visible.
-// Le da margen a los sectores/minisectores para "completarse" antes de mostrarse.
 const BASE_DELAY_MS = 10000
+
+const NATIONALITY_CODES: Record<string, string> = {
+  British: 'gb', Dutch: 'nl', Monegasque: 'mc', Spanish: 'es',
+  Australian: 'au', Mexican: 'mx', Finnish: 'fi', German: 'de',
+  French: 'fr', Canadian: 'ca', Thai: 'th', Japanese: 'jp',
+  Italian: 'it', Brazilian: 'br', Argentine: 'ar', American: 'us',
+  Danish: 'dk', Chinese: 'cn', Austrian: 'at', 'New Zealander': 'nz',
+  Belgian: 'be', Polish: 'pl', Russian: 'ru', Swedish: 'se',
+}
 
 type DriverTiming = {
   Position?: string
@@ -33,6 +39,7 @@ type DriverTiming = {
   FullName?: string
   TeamName?: string
   TeamColour?: string
+  CountryCode?: string
 }
 
 type TyreData = {
@@ -86,120 +93,117 @@ type LiveState = {
 
 const TYRE_COLORS: Record<string, string> = {
   SOFT: '#e10600', MEDIUM: '#ffd700', HARD: '#ffffff',
-  INTERMEDIATE: '#00a550', WET: '#0057b8', UNKNOWN: '#888',
+  INTERMEDIATE: '#00a550', WET: '#0057b8', UNKNOWN: '#555',
 }
-
 const TYRE_LABELS: Record<string, string> = {
   SOFT: 'S', MEDIUM: 'M', HARD: 'H', INTERMEDIATE: 'I', WET: 'W', UNKNOWN: '?',
 }
-
 const FLAG_COLORS: Record<string, string> = {
   GREEN: '#00a550', YELLOW: '#ffd700', RED: '#e10600',
   SAFETY_CAR: '#ffd700', VIRTUAL_SAFETY_CAR: '#ffd700',
   CHEQUERED: '#ffffff', CLEAR: '#00a550', BLUE: '#0057b8',
 }
-
 const SESSION_LABELS: Record<string, string> = {
-  'Practice 1': '🟢 Práctica 1', 'Practice 2': '🟢 Práctica 2',
-  'Practice 3': '🟢 Práctica 3', 'Qualifying': '🟡 Clasificación',
-  'Sprint Qualifying': '🟡 Sprint Qualifying', 'Sprint Shootout': '🟡 Sprint Shootout',
-  'Sprint': '🟠 Sprint', 'Race': '🏁 Carrera',
+  'Practice 1': 'Práctica 1', 'Practice 2': 'Práctica 2',
+  'Practice 3': 'Práctica 3', 'Qualifying': 'Clasificación',
+  'Sprint Qualifying': 'Sprint Qualifying', 'Sprint Shootout': 'Sprint Shootout',
+  'Sprint': 'Sprint', 'Race': 'Carrera',
 }
-
+const SESSION_COLORS: Record<string, string> = {
+  'Practice 1': '#22c55e', 'Practice 2': '#22c55e', 'Practice 3': '#22c55e',
+  'Qualifying': '#ffd700', 'Sprint Qualifying': '#ffd700', 'Sprint Shootout': '#ffd700',
+  'Sprint': '#f97316', 'Race': '#e10600',
+}
 const TRACK_STATUS_INFO: Record<string, { label: string; color: string; emoji: string }> = {
   '1': { label: 'Pista despejada', color: '#00a550', emoji: '🟢' },
   '2': { label: 'Bandera amarilla', color: '#ffd700', emoji: '🟡' },
-  '3': { label: 'Bandera verde', color: '#00a550', emoji: '🟢' },
-  '4': { label: 'Safety Car', color: '#ffd700', emoji: '🚗' },
-  '5': { label: 'Bandera roja', color: '#e10600', emoji: '🔴' },
-  '6': { label: 'Virtual SC', color: '#ffd700', emoji: '⚠️' },
-  '7': { label: 'Virtual SC fin', color: '#ffd700', emoji: '⚠️' },
+  '3': { label: 'Bandera verde',    color: '#00a550', emoji: '🟢' },
+  '4': { label: 'Safety Car',       color: '#ffd700', emoji: '🚗' },
+  '5': { label: 'Bandera roja',     color: '#e10600', emoji: '🔴' },
+  '6': { label: 'Virtual SC',       color: '#ffd700', emoji: '⚠️' },
+  '7': { label: 'Virtual SC fin',   color: '#ffd700', emoji: '⚠️' },
 }
-
 const SEGMENT_COLORS: Record<number, string> = {
   2048: '#ffd700', 2049: '#00a550', 2051: '#a855f7', 2052: '#a855f7',
-  2064: '#888', 0: '#333',
+  2064: '#555', 0: '#2a2a2a',
 }
 
-// ── Calcular tiempo restante extrapolado ──
 function useExtrapolatedClock(clock: any): string {
   const [remaining, setRemaining] = useState('')
-
   useEffect(() => {
     if (!clock?.Remaining) { setRemaining(''); return }
     if (!clock.Extrapolating) { setRemaining(clock.Remaining); return }
-
-    const calcRemaining = () => {
+    const calc = () => {
       const [h, m, s] = clock.Remaining.split(':').map(Number)
-      const totalSeconds = h * 3600 + m * 60 + s
-      const refTime = new Date(clock.Utc).getTime()
-      const elapsed = (Date.now() - refTime) / 1000
-      const left = Math.max(0, totalSeconds - elapsed)
+      const total = h * 3600 + m * 60 + s
+      const elapsed = (Date.now() - new Date(clock.Utc).getTime()) / 1000
+      const left = Math.max(0, total - elapsed)
       const lh = Math.floor(left / 3600)
       const lm = Math.floor((left % 3600) / 60)
       const ls = Math.floor(left % 60)
       return `${lh > 0 ? lh + ':' : ''}${String(lm).padStart(2, '0')}:${String(ls).padStart(2, '0')}`
     }
-
-    setRemaining(calcRemaining())
-    const interval = setInterval(() => setRemaining(calcRemaining()), 1000)
-    return () => clearInterval(interval)
+    setRemaining(calc())
+    const iv = setInterval(() => setRemaining(calc()), 1000)
+    return () => clearInterval(iv)
   }, [clock])
-
   return remaining
 }
 
-// ── Merge profundo de sectores acumulando segmentos ──
 function mergeTiming(prev: LiveState['timing'], next: LiveState['timing']): LiveState['timing'] {
   const merged = { ...prev }
   for (const [num, data] of Object.entries(next)) {
-    if (!merged[num]) {
-      merged[num] = { ...data }
-      continue
-    }
+    if (!merged[num]) { merged[num] = { ...data }; continue }
     const prevDriver = merged[num]
     const newDriver = { ...prevDriver, ...data }
-
     if (data.Sectors) {
       newDriver.Sectors = { ...prevDriver.Sectors }
       for (const [sKey, sector] of Object.entries(data.Sectors)) {
         const prevSector = prevDriver.Sectors?.[sKey] ?? {}
         if (sector.Segments) {
-          const prevSegs = prevSector.Segments ?? {}
           newDriver.Sectors[sKey] = {
-            ...prevSector,
-            ...sector,
-            Segments: { ...prevSegs, ...sector.Segments },
+            ...prevSector, ...sector,
+            Segments: { ...prevSector.Segments, ...sector.Segments },
           }
         } else {
           newDriver.Sectors[sKey] = { ...prevSector, ...sector }
         }
       }
     }
-
     merged[num] = newDriver
   }
   return merged
+}
+
+function DriverFlag({ countryCode, nationality }: { countryCode?: string; nationality?: string }) {
+  const code = countryCode?.toLowerCase() ?? (nationality ? NATIONALITY_CODES[nationality] : null)
+  if (!code) return null
+  return (
+    <img
+      src={`https://flagcdn.com/w20/${code}.png`}
+      alt={nationality ?? code}
+      className="w-4 h-3 object-cover rounded-sm shrink-0"
+      style={{ boxShadow: '0 0 0 1px rgba(255,255,255,0.1)' }}
+    />
+  )
 }
 
 function SectorTime({ sector }: {
   sector?: { Value?: string; OverallFastest?: boolean; PersonalFastest?: boolean; Segments?: { [k: string]: { Status: number } } }
 }) {
   if (!sector) return <div className="text-xs font-mono" style={{ color: 'var(--f1-muted)' }}>—</div>
-  const color = sector.OverallFastest ? '#a855f7' : sector.PersonalFastest ? '#00a550' : 'inherit'
+  const color = sector.OverallFastest ? '#a855f7' : sector.PersonalFastest ? '#00a550' : 'var(--f1-muted)'
   const segments = sector.Segments
-    ? Object.entries(sector.Segments)
-        .sort(([a], [b]) => parseInt(a) - parseInt(b))
-        .map(([, v]) => v)
+    ? Object.entries(sector.Segments).sort(([a], [b]) => parseInt(a) - parseInt(b)).map(([, v]) => v)
     : []
   return (
     <div>
       <div className="text-xs font-mono font-bold" style={{ color }}>{sector.Value || '—'}</div>
       {segments.length > 0 && (
-        <div className="flex gap-0.5 mt-0.5">
+        <div className="flex gap-px mt-1">
           {segments.map((seg, i) => (
-            <div key={i} className="h-1 rounded-sm flex-1"
-              style={{ background: SEGMENT_COLORS[seg.Status] ?? '#333', minWidth: 3 }} />
+            <div key={i} className="rounded-sm flex-1"
+              style={{ background: SEGMENT_COLORS[seg.Status] ?? '#2a2a2a', height: 3, minWidth: 4 }} />
           ))}
         </div>
       )}
@@ -207,7 +211,6 @@ function SectorTime({ sector }: {
   )
 }
 
-// ── Item en el buffer: mensaje crudo + el momento (relativo) en que debe liberarse ──
 type BufferItem = { msg: any; releaseAt: number }
 
 export default function LiveTimingPage() {
@@ -220,15 +223,12 @@ export default function LiveTimingPage() {
 
   const wsRef = useRef<WebSocket | null>(null)
   const pendingRef = useRef<{ timing: LiveState['timing'] | null; other: Partial<LiveState> }>({ timing: null, other: {} })
-  const flushTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  // Buffer central: todo mensaje entra aquí con su tiempo de liberación
   const bufferRef = useRef<BufferItem[]>([])
-  // Cuánto delay extra se acumuló por pausas (se suma al BASE_DELAY_MS, nunca baja)
   const extraDelayRef = useRef(0)
   const pausedRef = useRef(false)
   const pauseStartedAtRef = useRef<number | null>(null)
   const releaseTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const flushTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   function applyMessage(msg: any) {
     if (msg.topic === 'ping') return
@@ -248,8 +248,7 @@ export default function LiveTimingPage() {
         : null
       if (msg.topic === 'session_data') {
         pendingRef.current.other.session_data = {
-          ...(pendingRef.current.other.session_data ?? {}),
-          ...msg.data,
+          ...(pendingRef.current.other.session_data ?? {}), ...msg.data,
         }
       } else if (key) {
         ;(pendingRef.current.other as any)[key] = msg.data
@@ -258,22 +257,14 @@ export default function LiveTimingPage() {
     setLastUpdate(new Date())
   }
 
-  // ── Cada 200ms: libera del buffer todo lo que ya cumplió su delay, y aplica el flush de timing ──
   useEffect(() => {
     releaseTimerRef.current = setInterval(() => {
-      const now = Date.now()
-      const buffer = bufferRef.current
-
-      // Mientras está pausado no liberamos nada — solo se sigue acumulando
       if (!pausedRef.current) {
-        let releasedCount = 0
-        while (buffer.length > 0 && buffer[0].releaseAt <= now) {
-          const item = buffer.shift()!
-          applyMessage(item.msg)
-          releasedCount++
+        const now = Date.now()
+        while (bufferRef.current.length > 0 && bufferRef.current[0].releaseAt <= now) {
+          applyMessage(bufferRef.current.shift()!.msg)
         }
       }
-
       setBufferCount(bufferRef.current.length)
     }, 200)
 
@@ -302,7 +293,6 @@ export default function LiveTimingPage() {
       if (next) {
         pauseStartedAtRef.current = Date.now()
       } else if (pauseStartedAtRef.current) {
-        // Al despausar, el tiempo que estuvo pausado se suma como delay permanente
         const pausedFor = Date.now() - pauseStartedAtRef.current
         extraDelayRef.current += pausedFor
         setDelaySeconds(Math.round((BASE_DELAY_MS + extraDelayRef.current) / 1000))
@@ -321,12 +311,7 @@ export default function LiveTimingPage() {
         try {
           const msg = JSON.parse(event.data)
           if (msg.topic === 'ping') return
-          if (msg.topic === 'snapshot') {
-            // El snapshot inicial se aplica sin demora — es el estado ya consolidado al conectar
-            applyMessage(msg)
-            return
-          }
-          // Todo mensaje entra al buffer con el delay total vigente (base + extra acumulado por pausas)
+          if (msg.topic === 'snapshot') { applyMessage(msg); return }
           const totalDelay = BASE_DELAY_MS + extraDelayRef.current
           bufferRef.current.push({ msg, releaseAt: Date.now() + totalDelay })
           setBufferCount(bufferRef.current.length)
@@ -341,6 +326,15 @@ export default function LiveTimingPage() {
 
   const clock = liveState?.session_data?.Clock
   const remainingTime = useExtrapolatedClock(clock)
+  const sessionName = liveState?.session?.Name ?? ''
+  const sessionLabel = SESSION_LABELS[sessionName] ?? sessionName
+  const sessionColor = SESSION_COLORS[sessionName] ?? '#888'
+  const meetingName = liveState?.session?.Meeting?.Name ?? ''
+  const lapCount = liveState?.session_data?.LapCount
+  const isRace = sessionName === 'Race' || sessionName === 'Sprint'
+  const trackStatusCode = liveState?.track_status?.Status ?? '1'
+  const trackStatusInfo = TRACK_STATUS_INFO[trackStatusCode]
+  const weather = liveState?.weather
 
   const sortedDrivers = liveState
     ? Object.entries(liveState.timing)
@@ -356,13 +350,13 @@ export default function LiveTimingPage() {
           if (gapB === '' && gapA !== '') return 1
           if (gapA.includes('L') && !gapB.includes('L')) return 1
           if (gapB.includes('L') && !gapA.includes('L')) return -1
-          if (gapA.startsWith('LAP') && !gapB.startsWith('LAP')) return 1
-          if (gapB.startsWith('LAP') && !gapA.startsWith('LAP')) return -1
           const numA = parseFloat(gapA.replace('+', '')) || 999
           const numB = parseFloat(gapB.replace('+', '')) || 999
           return numA - numB
         })
     : []
+
+  const hasData = sortedDrivers.length > 0
 
   function getCurrentTyre(tyre: TyreData | undefined) {
     if (!tyre?.Stints) return { compound: 'UNKNOWN', laps: 0, isNew: false }
@@ -371,198 +365,336 @@ export default function LiveTimingPage() {
     return { compound: last?.Compound ?? 'UNKNOWN', laps: last?.TotalLaps ?? 0, isNew: last?.New === 'true' }
   }
 
-  const sessionName = liveState?.session?.Name ?? ''
-  const sessionLabel = SESSION_LABELS[sessionName] ?? sessionName
-  const meetingName = liveState?.session?.Meeting?.Name ?? ''
-  const hasData = sortedDrivers.length > 0
-  const weather = liveState?.weather
-  const trackStatusCode = liveState?.track_status?.Status ?? '1'
-  const trackStatusInfo = TRACK_STATUS_INFO[trackStatusCode]
-  const lapCount = liveState?.session_data?.LapCount
-  const totalLaps = lapCount?.TotalLaps
-  const currentLap = lapCount?.CurrentLap
-  const isRace = sessionName === 'Race' || sessionName === 'Sprint'
+  const CARD = {
+    background: 'var(--f1-card-gradient)',
+    border: '1px solid var(--f1-card-border)',
+    boxShadow: 'var(--f1-card-shadow)',
+  }
 
   return (
     <main className="min-h-screen px-4 py-8 max-w-7xl mx-auto">
 
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4 flex-wrap gap-4">
-        <div>
-          <div className="flex items-center gap-3 flex-wrap">
-            <h1 className="text-3xl font-bold">
-              <span style={{ color: 'var(--f1-red)' }}>🔴 Live</span> Timing
-            </h1>
-            <span className="text-sm font-bold px-3 py-1 rounded-full"
-              style={{
-                background: connected ? '#00a55022' : '#e1060022',
-                color: connected ? '#00a550' : '#e10600',
-                border: `1px solid ${connected ? '#00a550' : '#e10600'}`,
-              }}>
-              {connected ? '⬤ Conectado' : '◯ Reconectando...'}
-            </span>
-            <button
-              onClick={togglePause}
-              className="text-sm font-bold px-3 py-1 rounded-full transition-opacity hover:opacity-80"
-              style={{
-                background: paused ? '#ffd70022' : 'var(--f1-light-gray)',
-                color: paused ? '#ffd700' : 'var(--f1-text)',
-                border: `1px solid ${paused ? '#ffd700' : 'var(--f1-light-gray)'}`,
-              }}
-            >
-              {paused ? `⏸ Pausado (+${bufferCount})` : '⏸ Pausar'}
-            </button>
-          </div>
+      {/* ── Header card ── */}
+      <div
+        className="rounded-2xl px-6 py-4 mb-6"
+        style={{
+          background: hasData
+            ? `linear-gradient(135deg, ${sessionColor}12, rgba(0,0,0,0))`
+            : 'var(--f1-card-gradient)',
+          border: `1px solid ${hasData ? sessionColor + '30' : 'var(--f1-card-border)'}`,
+          boxShadow: hasData ? `0 0 40px ${sessionColor}08` : 'var(--f1-card-shadow)',
+        }}
+      >
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          {/* Izquierda: título + info de sesión */}
+          <div>
+            <div className="flex items-center gap-3 flex-wrap mb-2">
+              <h1 className="text-2xl font-black tracking-tight">
+                <span style={{ color: 'var(--f1-red)' }}>LIVE</span>
+                <span className="ml-2 font-light" style={{ color: 'var(--f1-muted)' }}>TIMING</span>
+              </h1>
 
-          {meetingName && (
-            <div className="flex items-center gap-3 mt-2 flex-wrap">
-              <p className="text-sm" style={{ color: 'var(--f1-muted)' }}>📍 {meetingName}</p>
+              {/* Estado de conexión */}
+              <span
+                className="text-xs font-bold px-2.5 py-1 rounded-full"
+                style={{
+                  background: connected ? 'rgba(34,197,94,0.12)' : 'rgba(225,6,0,0.12)',
+                  color: connected ? '#22c55e' : '#e10600',
+                  border: `1px solid ${connected ? 'rgba(34,197,94,0.3)' : 'rgba(225,6,0,0.3)'}`,
+                }}
+              >
+                {connected ? '⬤ Conectado' : '◯ Reconectando'}
+              </span>
+
+              {/* Sesión */}
               {sessionLabel && (
-                <span className="text-sm font-bold px-3 py-0.5 rounded-full"
-                  style={{ background: 'var(--f1-light-gray)' }}>
+                <span
+                  className="text-xs font-bold px-2.5 py-1 rounded-full"
+                  style={{
+                    background: sessionColor + '18',
+                    color: sessionColor,
+                    border: `1px solid ${sessionColor}40`,
+                  }}
+                >
                   {sessionLabel}
                 </span>
               )}
-              {isRace && currentLap && totalLaps && (
-                <span className="text-sm font-bold px-3 py-0.5 rounded-full"
-                  style={{ background: 'var(--f1-red)', color: '#fff' }}>
-                  Vuelta {currentLap} / {totalLaps}
-                </span>
-              )}
-              {!isRace && remainingTime && (
-                <span className="text-sm font-bold px-3 py-0.5 rounded-full"
-                  style={{ background: '#ffd700', color: '#000' }}>
-                  ⏱ {remainingTime}
-                </span>
-              )}
             </div>
-          )}
-        </div>
 
-        <div className="flex flex-col items-end gap-1">
-          {hasData && trackStatusInfo && (
-            <span className="text-sm font-bold px-3 py-1 rounded-full"
-              style={{ background: trackStatusInfo.color + '22', color: trackStatusInfo.color, border: `1px solid ${trackStatusInfo.color}` }}>
-              {trackStatusInfo.emoji} {trackStatusInfo.label}
-            </span>
-          )}
-          {lastUpdate && (
-            <p className="text-xs" style={{ color: 'var(--f1-muted)' }}>
-              🔄 {lastUpdate.toLocaleTimeString('es-AR')}
-            </p>
-          )}
-          <p className="text-xs" style={{ color: 'var(--f1-muted)' }}>
-            ⏱ Delay: {delaySeconds}s
-          </p>
+            {/* Meeting + circuito */}
+            {meetingName && (
+              <p className="text-sm font-medium" style={{ color: 'var(--f1-muted)' }}>
+                📍 {meetingName}
+                {liveState?.session?.Meeting?.Circuit?.ShortName && (
+                  <span className="ml-1">· {liveState.session.Meeting.Circuit.ShortName}</span>
+                )}
+              </p>
+            )}
+          </div>
+
+          {/* Derecha: tiempo restante / vuelta + estado pista + controls */}
+          <div className="flex flex-col items-end gap-2">
+            {/* Tiempo restante o vuelta actual */}
+            {hasData && (
+              <div className="flex items-center gap-2 flex-wrap justify-end">
+                {isRace && lapCount?.CurrentLap && lapCount?.TotalLaps && (
+                  <div
+                    className="text-sm font-black px-3 py-1.5 rounded-xl"
+                    style={{ background: 'rgba(225,6,0,0.15)', color: '#e10600', border: '1px solid rgba(225,6,0,0.3)' }}
+                  >
+                    VUELTA {lapCount.CurrentLap} <span style={{ opacity: 0.6 }}>/ {lapCount.TotalLaps}</span>
+                  </div>
+                )}
+                {!isRace && remainingTime && (
+                  <div
+                    className="text-sm font-black px-3 py-1.5 rounded-xl font-mono"
+                    style={{ background: 'rgba(255,215,0,0.12)', color: '#ffd700', border: '1px solid rgba(255,215,0,0.3)' }}
+                  >
+                    ⏱ {remainingTime}
+                  </div>
+                )}
+                {trackStatusInfo && (
+                  <div
+                    className="text-xs font-bold px-2.5 py-1.5 rounded-xl"
+                    style={{
+                      background: trackStatusInfo.color + '15',
+                      color: trackStatusInfo.color,
+                      border: `1px solid ${trackStatusInfo.color}35`,
+                    }}
+                  >
+                    {trackStatusInfo.emoji} {trackStatusInfo.label}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Controls + delay */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={togglePause}
+                className="text-xs font-bold px-3 py-1.5 rounded-xl transition-all duration-150 active:scale-95"
+                style={{
+                  background: paused ? 'rgba(255,215,0,0.12)' : 'rgba(255,255,255,0.06)',
+                  color: paused ? '#ffd700' : 'var(--f1-muted)',
+                  border: `1px solid ${paused ? 'rgba(255,215,0,0.3)' : 'var(--f1-card-border)'}`,
+                }}
+              >
+                {paused ? `⏸ Pausado +${bufferCount}` : '⏸ Pausar'}
+              </button>
+              <span className="text-xs font-mono" style={{ color: 'var(--f1-muted)' }}>
+                delay {delaySeconds}s
+              </span>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className={hasData ? "grid grid-cols-1 xl:grid-cols-4 gap-4" : "flex flex-col gap-4"}>
+      {/* ── Layout principal ── */}
+      <div className={hasData ? 'grid grid-cols-1 xl:grid-cols-4 gap-4' : ''}>
 
-        {/* Tabla */}
-        <div className={hasData ? "xl:col-span-3" : "w-full"}>
-          <div className="rounded-xl overflow-x-auto" style={{ background: 'var(--f1-gray)' }}>
+        {/* ── Tabla timing ── */}
+        <div className={hasData ? 'xl:col-span-3' : ''}>
+          <div className="rounded-2xl overflow-hidden" style={CARD}>
+
+            {/* Header columnas */}
             <div
-              className="hidden md:grid gap-2 px-4 py-2 text-xs font-semibold uppercase"
-              style={{ color: 'var(--f1-muted)', borderBottom: '1px solid var(--f1-light-gray)', gridTemplateColumns: '36px 36px 150px 80px 90px 90px 110px 80px 80px 80px 32px' }}
+              className="hidden md:grid px-5 py-2.5 text-xs font-bold uppercase tracking-wider"
+              style={{
+                color: 'var(--f1-muted)',
+                borderBottom: '1px solid var(--f1-card-border)',
+                gridTemplateColumns: '32px 36px 1fr 72px 90px 90px 110px 76px 76px 76px 28px',
+                gap: '8px',
+              }}
             >
-              <span>Pos</span><span>#</span><span>Piloto</span><span>Neum.</span>
-              <span>Última V.</span><span>Mejor V.</span><span>Gap / Int.</span>
-              <span>S1</span><span>S2</span><span>S3</span><span>Pit</span>
+              <span>Pos</span>
+              <span>#</span>
+              <span>Piloto</span>
+              <span>Neum.</span>
+              <span>Última</span>
+              <span>Mejor</span>
+              <span>Gap / Int.</span>
+              <span>S1</span>
+              <span>S2</span>
+              <span>S3</span>
+              <span>Pit</span>
             </div>
 
+            {/* Sin sesión */}
             {!hasData ? (
-              <div className="text-center py-20" style={{ color: 'var(--f1-muted)' }}>
-                <div className="text-4xl mb-4">🏁</div>
-                <p className="font-semibold">Sin sesión activa</p>
-                <p className="text-sm mt-1">Los datos aparecerán automáticamente cuando empiece la sesión</p>
+              <div className="flex flex-col items-center justify-center py-24 gap-4">
+                <div className="text-5xl">🏁</div>
+                <div className="text-center">
+                  <p className="font-bold text-lg mb-1">Sin sesión activa</p>
+                  <p className="text-sm" style={{ color: 'var(--f1-muted)' }}>
+                    Los datos aparecerán automáticamente cuando empiece la sesión
+                  </p>
+                </div>
+                {lastUpdate && (
+                  <p className="text-xs" style={{ color: 'var(--f1-muted)' }}>
+                    Última actualización: {lastUpdate.toLocaleTimeString('es-AR')}
+                  </p>
+                )}
               </div>
             ) : (
-              <div className="divide-y" style={{ borderColor: 'var(--f1-light-gray)' }}>
+              <div className="divide-y" style={{ borderColor: 'var(--f1-card-border)' }}>
                 {sortedDrivers.map(({ num, data, tyre, info }, index) => {
                   const { compound, laps, isNew } = getCurrentTyre(tyre)
                   const pos = data.Position ? parseInt(data.Position) : (index + 1)
-                  const teamColor = info?.teamColor ? `#${info.teamColor}` : (data.TeamColour ? `#${data.TeamColour}` : '#888')
+                  const teamColor = info?.teamColor ? `#${info.teamColor}` : (data.TeamColour ? `#${data.TeamColour}` : '#666')
                   const sectors = data.Sectors ?? {}
-                  const lapColor = data.LastLapTime?.OverallFastest ? '#a855f7' : data.LastLapTime?.PersonalFastest ? '#00a550' : 'inherit'
+                  const lapColor = data.LastLapTime?.OverallFastest ? '#a855f7' : data.LastLapTime?.PersonalFastest ? '#22c55e' : 'inherit'
                   const isRetired = data.Retired
-                  const statusLabel = isRetired ? '❌ RET' : data.InPit ? '🔧 PIT' : data.PitOut ? '📤 OUT' : data.Stopped ? '🔴 STP' : null
-                  const gap = pos === 1 ? 'Líder' : (data.GapToLeader ?? '—')
+                  const statusLabel = isRetired ? 'RET' : data.InPit ? 'PIT' : data.PitOut ? 'OUT' : data.Stopped ? 'STP' : null
+                  const statusColor = isRetired ? '#f87171' : data.InPit ? '#ffd700' : data.PitOut ? '#22c55e' : '#f87171'
+                  const gap = pos === 1 ? 'LÍDER' : (data.GapToLeader ?? '—')
                   const interval = data.IntervalToPositionAhead?.Value
                   const acronym = info?.acronym ?? data.Tla ?? num
                   const team = info?.team ?? data.TeamName ?? '—'
-                  const flag = info?.flag ?? ''
+                  const countryCode = data.CountryCode?.toLowerCase()
 
                   return (
-                    <div key={num} style={{ opacity: isRetired ? 0.5 : 1 }}>
+                    <div
+                      key={num}
+                      style={{
+                        opacity: isRetired ? 0.45 : 1,
+                        background: pos <= 3 ? `${teamColor}06` : 'transparent',
+                      }}
+                    >
                       {/* Desktop */}
                       <div
-                        className="hidden md:grid items-center gap-2 px-4 py-2 text-sm"
+                        className="hidden md:grid items-center px-5 py-2.5 text-sm transition-colors duration-100 hover:bg-white/[0.02]"
                         style={{
-                          gridTemplateColumns: '36px 36px 150px 80px 90px 90px 110px 80px 80px 80px 32px',
+                          gridTemplateColumns: '32px 36px 1fr 72px 90px 90px 110px 76px 76px 76px 28px',
+                          gap: '8px',
                           borderLeft: `3px solid ${teamColor}`,
-                          background: statusLabel && !isRetired ? '#ffffff08' : 'transparent',
                         }}
                       >
-                        <span className="font-bold text-base" style={{ color: pos === 1 ? 'var(--f1-red)' : 'inherit' }}>{pos}</span>
-                        <span className="text-xs font-bold" style={{ color: teamColor }}>{num}</span>
+                        {/* Pos */}
+                        <span
+                          className="font-black text-sm"
+                          style={{ color: pos === 1 ? 'var(--f1-red)' : pos <= 3 ? '#fff' : 'var(--f1-muted)' }}
+                        >
+                          {pos}
+                        </span>
+
+                        {/* Número */}
+                        <span className="text-xs font-black" style={{ color: teamColor }}>
+                          {num}
+                        </span>
+
+                        {/* Piloto */}
                         <div className="min-w-0">
-                          <div className="flex items-center gap-1">
-                            {flag && <span className="text-sm">{flag}</span>}
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <DriverFlag countryCode={countryCode} nationality={data.CountryCode} />
                             <span className="font-bold text-sm truncate">{acronym}</span>
-                            {statusLabel && <span className="text-xs ml-1" style={{ color: 'var(--f1-muted)' }}>{statusLabel}</span>}
+                            {statusLabel && (
+                              <span
+                                className="text-xs font-bold px-1.5 py-0.5 rounded"
+                                style={{ background: statusColor + '20', color: statusColor }}
+                              >
+                                {statusLabel}
+                              </span>
+                            )}
                           </div>
                           <div className="text-xs truncate" style={{ color: 'var(--f1-muted)' }}>{team}</div>
                         </div>
-                        <div className="flex items-center gap-1">
-                          <span
+
+                        {/* Neumático */}
+                        <div className="flex items-center gap-1.5">
+                          <div
                             className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-black shrink-0"
                             style={{
                               background: TYRE_COLORS[compound],
                               color: compound === 'HARD' || compound === 'MEDIUM' ? '#000' : '#fff',
-                              border: isNew ? '2px solid white' : 'none',
+                              boxShadow: isNew ? '0 0 0 2px #fff' : 'none',
                             }}
-                          >{TYRE_LABELS[compound]}</span>
-                          <span className="text-xs font-mono">{laps > 0 ? laps : '—'}</span>
+                          >
+                            {TYRE_LABELS[compound]}
+                          </div>
+                          <span className="text-xs font-mono" style={{ color: 'var(--f1-muted)' }}>
+                            {laps > 0 ? laps : '—'}
+                          </span>
                         </div>
-                        <span className="font-mono text-xs" style={{ color: lapColor }}>{data.LastLapTime?.Value ?? '—'}</span>
-                        <span className="font-mono text-xs" style={{ color: 'var(--f1-muted)' }}>{data.BestLapTime?.Value ?? '—'}</span>
+
+                        {/* Última vuelta */}
+                        <span className="font-mono text-xs font-bold" style={{ color: lapColor }}>
+                          {data.LastLapTime?.Value ?? '—'}
+                        </span>
+
+                        {/* Mejor vuelta */}
+                        <span className="font-mono text-xs" style={{ color: 'var(--f1-muted)' }}>
+                          {data.BestLapTime?.Value ?? '—'}
+                        </span>
+
+                        {/* Gap / Interval */}
                         <div>
-                          <div className="font-mono text-xs" style={{ color: pos === 1 ? '#00a550' : 'inherit' }}>{gap}</div>
+                          <div
+                            className="font-mono text-xs font-bold"
+                            style={{ color: pos === 1 ? '#22c55e' : 'inherit' }}
+                          >
+                            {gap}
+                          </div>
                           {interval && pos !== 1 && (
-                            <div className="font-mono text-xs" style={{ color: '#ffd700' }}>↑ {interval}</div>
+                            <div className="font-mono text-xs" style={{ color: '#ffd700' }}>
+                              ↑ {interval}
+                            </div>
                           )}
                         </div>
+
+                        {/* Sectores */}
                         <SectorTime sector={sectors['0']} />
                         <SectorTime sector={sectors['1']} />
                         <SectorTime sector={sectors['2']} />
-                        <span className="text-xs text-center font-bold" style={{ color: 'var(--f1-muted)' }}>
-                          {data.NumberOfPitStops ? data.NumberOfPitStops : '—'}
+
+                        {/* Pits */}
+                        <span
+                          className="text-xs text-center font-bold"
+                          style={{ color: 'var(--f1-muted)' }}
+                        >
+                          {data.NumberOfPitStops ?? '—'}
                         </span>
                       </div>
 
                       {/* Mobile */}
-                      <div className="md:hidden flex items-center gap-3 px-4 py-3"
-                        style={{ borderLeft: `3px solid ${teamColor}` }}>
-                        <span className="w-7 text-center font-bold text-sm shrink-0"
-                          style={{ color: pos === 1 ? 'var(--f1-red)' : 'inherit' }}>{pos}</span>
+                      <div
+                        className="md:hidden flex items-center gap-3 px-4 py-3"
+                        style={{ borderLeft: `3px solid ${teamColor}` }}
+                      >
+                        <span
+                          className="w-6 text-center font-black text-sm shrink-0"
+                          style={{ color: pos === 1 ? 'var(--f1-red)' : 'var(--f1-muted)' }}
+                        >
+                          {pos}
+                        </span>
+
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            {flag && <span>{flag}</span>}
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <DriverFlag countryCode={countryCode} />
                             <span className="font-bold text-sm">{acronym}</span>
-                            {statusLabel && <span className="text-xs" style={{ color: 'var(--f1-muted)' }}>{statusLabel}</span>}
+                            {statusLabel && (
+                              <span className="text-xs font-bold" style={{ color: statusColor }}>{statusLabel}</span>
+                            )}
                           </div>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <span className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-black"
-                              style={{ background: TYRE_COLORS[compound], color: compound === 'HARD' || compound === 'MEDIUM' ? '#000' : '#fff' }}>
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-black shrink-0"
+                              style={{ background: TYRE_COLORS[compound], color: compound === 'HARD' || compound === 'MEDIUM' ? '#000' : '#fff' }}
+                            >
                               {TYRE_LABELS[compound]}
+                            </div>
+                            <span className="text-xs font-mono" style={{ color: 'var(--f1-muted)' }}>
+                              {laps > 0 ? `${laps}v` : '—'}
                             </span>
-                            <span className="text-xs font-mono" style={{ color: 'var(--f1-muted)' }}>{laps > 0 ? `${laps}v` : '—'}</span>
                           </div>
                         </div>
+
                         <div className="text-right shrink-0">
-                          <div className="text-xs font-mono font-bold" style={{ color: lapColor }}>{data.LastLapTime?.Value ?? '—'}</div>
-                          <div className="text-xs font-mono" style={{ color: 'var(--f1-muted)' }}>{gap}</div>
+                          <div className="text-xs font-mono font-bold" style={{ color: lapColor }}>
+                            {data.LastLapTime?.Value ?? '—'}
+                          </div>
+                          <div className="text-xs font-mono" style={{ color: pos === 1 ? '#22c55e' : 'var(--f1-muted)' }}>
+                            {gap}
+                          </div>
                           {interval && pos !== 1 && (
                             <div className="text-xs font-mono" style={{ color: '#ffd700' }}>↑ {interval}</div>
                           )}
@@ -576,53 +708,83 @@ export default function LiveTimingPage() {
           </div>
         </div>
 
-        {/* Panel lateral / inferior */}
-        <div className={hasData ? "flex flex-col gap-4" : "flex flex-col gap-4 md:flex-row"}>
-          {weather && Object.keys(weather).length > 0 && (
-            <div className="rounded-xl px-5 py-4" style={{ background: 'var(--f1-gray)' }}>
-              <h3 className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--f1-muted)' }}>🌤 Condiciones</h3>
-              <div className="grid grid-cols-2 gap-2 text-sm">
-                <div><p className="text-xs" style={{ color: 'var(--f1-muted)' }}>Aire</p><p className="font-bold">{weather.AirTemp ?? '—'}°C</p></div>
-                <div><p className="text-xs" style={{ color: 'var(--f1-muted)' }}>Pista</p><p className="font-bold">{weather.TrackTemp ?? '—'}°C</p></div>
-                <div><p className="text-xs" style={{ color: 'var(--f1-muted)' }}>Humedad</p><p className="font-bold">{weather.Humidity ?? '—'}%</p></div>
-                <div><p className="text-xs" style={{ color: 'var(--f1-muted)' }}>Viento</p><p className="font-bold">{weather.WindSpeed ?? '—'} km/h</p></div>
-                <div className="col-span-2">
-                  <p className="text-xs" style={{ color: 'var(--f1-muted)' }}>Lluvia</p>
-                  <p className="font-bold" style={{ color: weather.Rainfall === '1' ? '#60a5fa' : 'inherit' }}>
-                    {weather.Rainfall === '1' ? '🌧 Sí' : 'Sin lluvia'}
-                  </p>
+        {/* ── Panel lateral ── */}
+        {hasData && (
+          <div className="flex flex-col gap-4">
+
+            {/* Condiciones */}
+            {weather && Object.keys(weather).length > 0 && (
+              <div className="rounded-2xl px-5 py-4" style={CARD}>
+                <h3
+                  className="text-xs font-bold uppercase tracking-widest mb-4"
+                  style={{ color: 'var(--f1-muted)' }}
+                >
+                  Condiciones
+                </h3>
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { label: 'Aire', value: weather.AirTemp ? `${weather.AirTemp}°C` : '—' },
+                    { label: 'Pista', value: weather.TrackTemp ? `${weather.TrackTemp}°C` : '—' },
+                    { label: 'Humedad', value: weather.Humidity ? `${weather.Humidity}%` : '—' },
+                    { label: 'Viento', value: weather.WindSpeed ? `${weather.WindSpeed} km/h` : '—' },
+                  ].map(({ label, value }) => (
+                    <div key={label}>
+                      <p className="text-xs mb-0.5" style={{ color: 'var(--f1-muted)' }}>{label}</p>
+                      <p className="font-bold text-sm">{value}</p>
+                    </div>
+                  ))}
+                  <div className="col-span-2">
+                    <p className="text-xs mb-0.5" style={{ color: 'var(--f1-muted)' }}>Lluvia</p>
+                    <p className="font-bold text-sm" style={{ color: weather.Rainfall === '1' ? '#60a5fa' : 'inherit' }}>
+                      {weather.Rainfall === '1' ? '🌧 Sí' : 'No'}
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {liveState?.race_control && liveState.race_control.length > 0 && (
-            <div className="rounded-xl px-5 py-4" style={{ background: 'var(--f1-gray)' }}>
-              <h3 className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--f1-muted)' }}>📻 Race Control</h3>
-              <div className="flex flex-col gap-2">
-                {[...liveState.race_control].reverse().slice(0, 8).map((msg, i) => (
-                  <div key={i} className="text-xs px-3 py-2 rounded-lg"
-                    style={{ background: 'var(--f1-light-gray)', borderLeft: `3px solid ${FLAG_COLORS[msg.Flag ?? ''] ?? '#888'}` }}>
-                    <div className="flex items-center gap-2 mb-0.5">
-                      {msg.Flag && <span className="font-semibold" style={{ color: FLAG_COLORS[msg.Flag] ?? '#fff' }}>{msg.Flag}</span>}
-                      {msg.Lap && <span style={{ color: 'var(--f1-muted)' }}>Vuelta {msg.Lap}</span>}
+            {/* Race Control */}
+            {liveState?.race_control && liveState.race_control.length > 0 && (
+              <div className="rounded-2xl px-5 py-4" style={CARD}>
+                <h3
+                  className="text-xs font-bold uppercase tracking-widest mb-4"
+                  style={{ color: 'var(--f1-muted)' }}
+                >
+                  Race Control
+                </h3>
+                <div className="flex flex-col gap-2">
+                  {[...liveState.race_control].reverse().slice(0, 8).map((msg, i) => (
+                    <div
+                      key={i}
+                      className="text-xs px-3 py-2.5 rounded-xl"
+                      style={{
+                        background: 'rgba(255,255,255,0.04)',
+                        borderLeft: `3px solid ${FLAG_COLORS[msg.Flag ?? ''] ?? 'var(--f1-card-border)'}`,
+                      }}
+                    >
+                      {(msg.Flag || msg.Lap) && (
+                        <div className="flex items-center gap-2 mb-1">
+                          {msg.Flag && (
+                            <span className="font-bold text-xs" style={{ color: FLAG_COLORS[msg.Flag] ?? '#fff' }}>
+                              {msg.Flag}
+                            </span>
+                          )}
+                          {msg.Lap && (
+                            <span className="text-xs" style={{ color: 'var(--f1-muted)' }}>
+                              V{msg.Lap}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      <p style={{ color: 'var(--f1-muted)', lineHeight: 1.4 }}>{msg.Message}</p>
                     </div>
-                    <p style={{ color: 'var(--f1-muted)' }}>{msg.Message}</p>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {!hasData && (
-            <div className="rounded-xl px-5 py-4" style={{ background: 'var(--f1-gray)' }}>
-              <h3 className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: 'var(--f1-muted)' }}>Info</h3>
-              <p className="text-sm" style={{ color: 'var(--f1-muted)' }}>
-                La página se actualiza automáticamente cuando empieza una sesión. No hace falta recargar.
-              </p>
-            </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </main>
   )
