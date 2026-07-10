@@ -11,14 +11,14 @@ type NewsItem = {
 }
 
 const SOURCE_COLORS: Record<string, string> = {
-  Motorsport: '#e10600',
-  Autosport: '#0057b8',
-  PlanetF1: '#00a550',
-  Marca: '#ff6600',
-  'AS Motor': '#cc0000',
-  Racer: '#f59e0b',
-  'F1 Oficial': '#1e90ff',
-  'F1 Latam': '#e67e22',
+  Motorsport:   '#e10600',
+  Autosport:    '#0057b8',
+  PlanetF1:     '#00a550',
+  Marca:        '#ff6600',
+  'AS Motor':   '#cc0000',
+  Racer:        '#f59e0b',
+  'F1 Oficial': '#e10600',
+  'F1 Latam':   '#e67e22',
 }
 
 function timeAgo(dateStr: string) {
@@ -31,21 +31,33 @@ function timeAgo(dateStr: string) {
 }
 
 function SourceBadge({ source }: { source: string }) {
+  const color = SOURCE_COLORS[source] ?? '#555'
   return (
     <span
       className="text-xs font-bold px-2 py-0.5 rounded-full shrink-0"
-      style={{ background: SOURCE_COLORS[source] ?? '#444', color: '#fff' }}
+      style={{
+        background: color + '20',
+        color: color,
+        border: `1px solid ${color}40`,
+      }}
     >
       {source}
     </span>
   )
 }
 
+const CARD = {
+  background: 'var(--f1-card-gradient)',
+  border: '1px solid var(--f1-card-border)',
+  boxShadow: 'var(--f1-card-shadow)',
+} as const
+
 export default function NewsClient({ news }: { news: NewsItem[] }) {
   const [query, setQuery] = useState('')
   const [activeSource, setActiveSource] = useState<string | null>(null)
+  const [hoveredFeatured, setHoveredFeatured] = useState(false)
+  const [hoveredCard, setHoveredCard] = useState<number | null>(null)
 
-  // Fuentes dinámicas desde las noticias que realmente llegaron
   const availableSources = [...new Set(news.map(n => n.source))]
 
   const filtered = news.filter(item => {
@@ -62,68 +74,88 @@ export default function NewsClient({ news }: { news: NewsItem[] }) {
     <div>
       {/* Buscador */}
       <div className="relative mb-4">
-        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm" style={{ color: 'var(--f1-muted)' }}>
-          🔍
+        <span
+          className="absolute left-3.5 top-1/2 -translate-y-1/2"
+          style={{ color: 'var(--f1-muted)' }}
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
+          </svg>
         </span>
         <input
           type="text"
-          placeholder="Buscar noticias... ej: Colapinto, Ferrari, Monaco"
+          placeholder="Buscar noticias… ej: Colapinto, Ferrari, Spa"
           value={query}
           onChange={e => setQuery(e.target.value)}
-          className="w-full pl-9 pr-4 py-3 rounded-xl text-sm"
+          className="w-full pl-10 pr-10 py-3 rounded-2xl text-sm transition-all duration-150"
           style={{
-            background: 'var(--f1-gray)',
+            ...CARD,
             color: 'var(--f1-text)',
-            border: '1px solid var(--f1-light-gray)',
             outline: 'none',
           }}
         />
         {query && (
           <button
             onClick={() => setQuery('')}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-sm hover:opacity-70"
+            className="absolute right-3.5 top-1/2 -translate-y-1/2 transition-opacity hover:opacity-60"
             style={{ color: 'var(--f1-muted)' }}
           >
-            ✕
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <path d="M18 6L6 18M6 6l12 12"/>
+            </svg>
           </button>
         )}
       </div>
 
-      {/* Filtro por fuente */}
-      <div className="flex gap-2 mb-6 flex-wrap">
+      {/* Filtros por fuente */}
+      <div className="flex gap-2 mb-8 flex-wrap">
         <button
           onClick={() => setActiveSource(null)}
-          className="text-xs font-bold px-3 py-1.5 rounded-full transition-opacity hover:opacity-80"
+          className="text-xs font-bold px-3.5 py-1.5 rounded-full transition-all duration-150"
           style={{
-            background: activeSource === null ? 'var(--f1-red)' : 'var(--f1-light-gray)',
+            background: activeSource === null ? 'var(--f1-red)' : 'rgba(255,255,255,0.06)',
             color: '#fff',
+            border: `1px solid ${activeSource === null ? 'var(--f1-red)' : 'var(--f1-card-border)'}`,
+            boxShadow: activeSource === null ? '0 0 12px rgba(225,6,0,0.25)' : 'none',
           }}
         >
           Todas
         </button>
-        {availableSources.map(source => (
-          <button
-            key={source}
-            onClick={() => setActiveSource(activeSource === source ? null : source)}
-            className="text-xs font-bold px-3 py-1.5 rounded-full transition-opacity hover:opacity-80"
-            style={{
-              background: activeSource === source ? (SOURCE_COLORS[source] ?? '#444') : 'var(--f1-light-gray)',
-              color: '#fff',
-            }}
-          >
-            {source}
-          </button>
-        ))}
+        {availableSources.map(source => {
+          const color = SOURCE_COLORS[source] ?? '#555'
+          const isActive = activeSource === source
+          return (
+            <button
+              key={source}
+              onClick={() => setActiveSource(isActive ? null : source)}
+              className="text-xs font-bold px-3.5 py-1.5 rounded-full transition-all duration-150"
+              style={{
+                background: isActive ? color + '20' : 'rgba(255,255,255,0.06)',
+                color: isActive ? color : 'var(--f1-muted)',
+                border: `1px solid ${isActive ? color + '50' : 'var(--f1-card-border)'}`,
+                boxShadow: isActive ? `0 0 12px ${color}20` : 'none',
+              }}
+            >
+              {source}
+            </button>
+          )
+        })}
       </div>
 
       {/* Sin resultados */}
       {filtered.length === 0 && (
-        <div className="text-center py-16" style={{ color: 'var(--f1-muted)' }}>
-          <div className="text-3xl mb-3">🔍</div>
-          <p>No se encontraron noticias para <strong>"{query}"</strong></p>
+        <div
+          className="rounded-2xl px-5 py-16 text-center"
+          style={CARD}
+        >
+          <p className="text-2xl mb-3">🔍</p>
+          <p className="font-semibold mb-1">Sin resultados para <span style={{ color: 'var(--f1-red)' }}>"{query}"</span></p>
+          <p className="text-sm mb-4" style={{ color: 'var(--f1-muted)' }}>
+            Probá con otro término o limpiá los filtros
+          </p>
           <button
             onClick={() => { setQuery(''); setActiveSource(null) }}
-            className="mt-4 text-sm hover:opacity-70"
+            className="text-sm font-bold hover:opacity-70 transition-opacity"
             style={{ color: 'var(--f1-red)' }}
           >
             Limpiar búsqueda
@@ -137,13 +169,28 @@ export default function NewsClient({ news }: { news: NewsItem[] }) {
           href={featured.link}
           target="_blank"
           rel="noopener noreferrer"
-          className="block rounded-xl p-6 mb-4 hover:opacity-80 transition-opacity"
-          style={{ background: 'var(--f1-gray)' }}
+          className="block rounded-2xl p-6 mb-4 transition-all duration-200"
+          style={{
+            ...CARD,
+            borderLeft: `4px solid ${SOURCE_COLORS[featured.source] ?? '#555'}`,
+            transform: hoveredFeatured ? 'translateY(-2px)' : 'none',
+            boxShadow: hoveredFeatured
+              ? `0 8px 32px rgba(0,0,0,0.3), 0 0 0 1px var(--f1-card-border)`
+              : 'var(--f1-card-shadow)',
+          }}
+          onMouseEnter={() => setHoveredFeatured(true)}
+          onMouseLeave={() => setHoveredFeatured(false)}
         >
           <div className="flex items-center gap-2 mb-3">
             <SourceBadge source={featured.source} />
             <span className="text-xs" style={{ color: 'var(--f1-muted)' }}>
               {timeAgo(featured.pubDate)}
+            </span>
+            <span
+              className="text-xs font-bold px-2 py-0.5 rounded-full ml-auto"
+              style={{ background: 'rgba(225,6,0,0.12)', color: 'var(--f1-red)', border: '1px solid rgba(225,6,0,0.25)' }}
+            >
+              Destacada
             </span>
           </div>
           <h3 className="text-xl font-bold leading-snug mb-2">{featured.title}</h3>
@@ -152,30 +199,49 @@ export default function NewsClient({ news }: { news: NewsItem[] }) {
               {featured.description}
             </p>
           )}
+          <div className="flex items-center gap-1 mt-4 text-xs font-medium" style={{ color: SOURCE_COLORS[featured.source] ?? 'var(--f1-muted)' }}>
+            Leer en {featured.source}
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <path d="M7 17L17 7M7 7h10v10"/>
+            </svg>
+          </div>
         </a>
       )}
 
       {/* Grilla */}
       {rest.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {rest.map((item, i) => (
-            <a
-              key={i}
-              href={item.link}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block rounded-xl px-5 py-4 hover:opacity-80 transition-opacity"
-              style={{ background: 'var(--f1-gray)' }}
-            >
-              <div className="flex items-center gap-2 mb-2">
-                <SourceBadge source={item.source} />
-                <span className="text-xs" style={{ color: 'var(--f1-muted)' }}>
-                  {timeAgo(item.pubDate)}
-                </span>
-              </div>
-              <p className="text-sm font-medium leading-snug">{item.title}</p>
-            </a>
-          ))}
+          {rest.map((item, i) => {
+            const isHovered = hoveredCard === i
+            const sourceColor = SOURCE_COLORS[item.source] ?? '#555'
+            return (
+              <a
+                key={i}
+                href={item.link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block rounded-2xl px-5 py-4 transition-all duration-150"
+                style={{
+                  ...CARD,
+                  borderLeft: `3px solid ${isHovered ? sourceColor : 'var(--f1-card-border)'}`,
+                  transform: isHovered ? 'translateY(-1px)' : 'none',
+                  boxShadow: isHovered
+                    ? `0 4px 20px rgba(0,0,0,0.25)`
+                    : 'var(--f1-card-shadow)',
+                }}
+                onMouseEnter={() => setHoveredCard(i)}
+                onMouseLeave={() => setHoveredCard(null)}
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <SourceBadge source={item.source} />
+                  <span className="text-xs" style={{ color: 'var(--f1-muted)' }}>
+                    {timeAgo(item.pubDate)}
+                  </span>
+                </div>
+                <p className="text-sm font-semibold leading-snug">{item.title}</p>
+              </a>
+            )
+          })}
         </div>
       )}
 
