@@ -110,9 +110,9 @@ const SESSION_LABELS: Record<string, string> = {
   'Sprint': 'Sprint', 'Race': 'Carrera',
 }
 const SESSION_COLORS: Record<string, string> = {
-  'Practice 1': '#22c55e', 'Practice 2': '#22c55e', 'Practice 3': '#22c55e',
-  'Qualifying': '#ffd700', 'Sprint Qualifying': '#ffd700', 'Sprint Shootout': '#ffd700',
-  'Sprint': '#f97316', 'Race': '#e10600',
+  'Practice 1': '#00aeff', 'Practice 2': '#0004ff', 'Practice 3': '#8000ff',
+  'Qualifying': '#00c43e', 'Sprint Qualifying': '#73ff00', 'Sprint Shootout': '#ffd700',
+  'Sprint': '#ffd700', 'Race': '#ff0800',
 }
 const TRACK_STATUS_INFO: Record<string, { label: string; color: string; emoji: string }> = {
   '1': { label: 'Pista despejada', color: '#00a550', emoji: '🟢' },
