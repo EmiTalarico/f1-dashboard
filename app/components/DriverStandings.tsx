@@ -96,7 +96,7 @@ export default async function DriverStandings() {
         </div>
         {isFallback && (
           <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--f1-muted)' }}>
-            Austria · R8
+            Bélgica · R10
           </span>
         )}
       </div>
