@@ -4,6 +4,7 @@ type Session = { date: string; time: string }
 
 type Race = {
   raceName: string
+  round: string
   date: string
   time: string
   Circuit: {
@@ -20,13 +21,10 @@ type Race = {
 }
 
 type WeatherBySession = Record<string, {
-  temp: number
-  rain: number
-  wind: number
-  code: number
+  temp: number; rain: number; wind: number; code: number
 } | null>
 
-const TIMEZONES: { label: string; code: string; tz: string }[] = [
+const TIMEZONES = [
   { label: 'Argentina', code: 'ar', tz: 'America/Argentina/Buenos_Aires' },
   { label: 'España',    code: 'es', tz: 'Europe/Madrid'                  },
   { label: 'UK',        code: 'gb', tz: 'Europe/London'                  },
@@ -43,13 +41,24 @@ const WMO_ICONS: Record<number, string> = {
 
 async function getNextRace(): Promise<Race | null> {
   try {
+    // Traemos el calendario completo del año en curso
     const res = await fetch(
-      'https://api.jolpi.ca/ergast/f1/2026/next.json',
+      'https://api.jolpi.ca/ergast/f1/2026.json',
       { next: { revalidate: 3600 } }
     )
     if (!res.ok) return null
     const data = await res.json()
-    return data.MRData.RaceTable.Races[0] ?? null
+    const races: Race[] = data.MRData.RaceTable.Races ?? []
+
+    // Buscamos la primera carrera con fecha futura
+    const now = new Date()
+    // Usamos la fecha de carrera + tiempo, si no tiene tiempo usamos medianoche UTC
+    const next = races.find(race => {
+      const raceDateTime = new Date(`${race.date}T${race.time ?? '00:00:00Z'}`)
+      return raceDateTime > now
+    })
+
+    return next ?? null
   } catch {
     return null
   }
@@ -71,7 +80,6 @@ async function getWeather(
     const res = await fetch(url, { next: { revalidate: 3600 } })
     if (!res.ok) return {}
     const data = await res.json()
-
     const hourly = data.hourly
     const result: WeatherBySession = {}
 
@@ -122,7 +130,7 @@ function SessionRow({ label, session, weather, isMain = false }: {
 }) {
   return (
     <div
-      className="rounded-xl px-4 py-3 mb-2 transition-all duration-200"
+      className="rounded-xl px-4 py-3 mb-2"
       style={{
         background: isMain ? 'rgba(225,6,0,0.08)' : 'rgba(255,255,255,0.02)',
         border: `1px solid ${isMain ? 'rgba(225,6,0,0.35)' : 'var(--f1-card-border)'}`,
@@ -131,7 +139,7 @@ function SessionRow({ label, session, weather, isMain = false }: {
     >
       <div className="flex items-center gap-2 mb-2">
         <span
-          className="text-xs font-bold px-2.5 py-0.5 rounded-full f1-label"
+          className="text-xs font-bold px-2.5 py-0.5 rounded-full"
           style={{
             background: isMain ? 'var(--f1-red)' : 'var(--f1-light-gray)',
             color: '#fff',
@@ -165,7 +173,10 @@ export default async function NextRace() {
 
   if (!race) {
     return (
-      <div className="f1-card px-6 py-5 mb-6 text-sm" style={{ color: 'var(--f1-muted)' }}>
+      <div
+        className="f1-card px-6 py-6 mb-6 text-center"
+        style={{ color: 'var(--f1-muted)' }}
+      >
         Próxima carrera no disponible momentáneamente
       </div>
     )
@@ -181,7 +192,7 @@ export default async function NextRace() {
     race.SprintShootout   && { label: 'Sprint Shootout',   session: race.SprintShootout },
     race.Sprint           && { label: 'Sprint',            session: race.Sprint },
     race.Qualifying       && { label: 'Clasificación',     session: race.Qualifying },
-    { label: 'Carrera', session: { date: race.date, time: race.time }, isMain: true },
+    { label: 'Carrera', session: { date: race.date, time: race.time ?? '14:00:00Z' }, isMain: true },
   ].filter(Boolean) as { label: string; session: Session; isMain?: boolean }[]
 
   const weather = await getWeather(
@@ -198,7 +209,6 @@ export default async function NextRace() {
 
   return (
     <div className="f1-card px-6 py-6 mb-6 relative overflow-hidden">
-      {/* Glow decorativo de fondo, sutil, anclado arriba-derecha */}
       <div
         className="absolute -top-24 -right-24 w-64 h-64 rounded-full pointer-events-none"
         style={{ background: 'radial-gradient(circle, rgba(225,6,0,0.15), transparent 70%)' }}
@@ -207,7 +217,7 @@ export default async function NextRace() {
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6 relative">
         <div>
           <p className="f1-label mb-1" style={{ color: 'var(--f1-red)' }}>
-            ⏱ Próxima carrera
+            ⏱ Próxima carrera · Ronda {race.round}
           </p>
           <h2 className="text-2xl font-extrabold tracking-tight">{race.raceName}</h2>
           <p className="text-sm mt-1" style={{ color: 'var(--f1-muted)' }}>
@@ -232,7 +242,13 @@ export default async function NextRace() {
           <div className="f1-divider flex-1" />
         </div>
         {sessions.map(({ label, session, isMain }) => (
-          <SessionRow key={label} label={label} session={session} weather={weather} isMain={!!isMain} />
+          <SessionRow
+            key={label}
+            label={label}
+            session={session}
+            weather={weather}
+            isMain={!!isMain}
+          />
         ))}
       </div>
     </div>
