@@ -378,8 +378,8 @@ export default function ClasificacionClient({ drivers, constructors, races, team
                           <span key={race.round} style={{ width: 44, flexShrink: 0, textAlign: 'center', fontSize: 11, color: 'rgba(255,255,255,0.1)' }}>—</span>
                         )
                         if (!isClassified(result.status)) return (
-                          <span key={race.round} style={{ width: 44, flexShrink: 0, textAlign: 'center', fontSize: 11, fontWeight: 700, color: '#f87171' }}
-                            title={result.status}>DNF</span>
+                          <span key={race.round} style={{ width: 44, flexShrink: 0, textAlign: 'center', fontSize: 11, fontWeight: 700, color: result.status === 'Did not start' ? '#666' : '#f87171' }}
+                            title={result.status}>{result.status === 'Did not start' ? 'DNS' : 'DNF'}</span>
                         )
                         const { bg, color, text } = positionColor(result.position)
                         return (
