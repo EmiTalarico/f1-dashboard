@@ -520,6 +520,28 @@ export default function LiveTimingPage() {
   const [expandedDriver, setExpandedDriver] = useState<string | null>(null)
   const expandedDriverRef = useRef<string | null>(null)
 
+  // Favorites
+  const [favorites, setFavorites] = useState<Set<string>>(new Set())
+  const [hoveredRow, setHoveredRow] = useState<string | null>(null)
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('f1_favorites')
+      if (saved) setFavorites(new Set(JSON.parse(saved)))
+    } catch { }
+  }, [])
+
+  function toggleFavorite(num: string, e: React.MouseEvent) {
+    e.stopPropagation()
+    setFavorites(prev => {
+      const next = new Set(prev)
+      if (next.has(num)) next.delete(num)
+      else next.add(num)
+      try { localStorage.setItem('f1_favorites', JSON.stringify([...next])) } catch { }
+      return next
+    })
+  }
+
   // Historial de tiempos de sector en memoria — persiste durante la sesión
   const sectorHistoryRef = useRef<SectorHistory>({})
   const [sectorHistory, setSectorHistory] = useState<SectorHistory>({})
@@ -903,14 +925,20 @@ export default function LiveTimingPage() {
                           gridTemplateColumns: '32px 36px 1fr 72px 90px 90px 100px 90px 90px 90px 28px',
                           gap: '8px',
                           borderLeft: `3px solid ${teamColor}`,
-                          background: isExpanded ? `${teamColor}10` : pos <= 3 ? `${teamColor}06` : 'transparent',
+                          background: favorites.has(num)
+                            ? `${teamColor}12`
+                            : isExpanded ? `${teamColor}10`
+                            : pos <= 3 ? `${teamColor}06` : 'transparent',
+                          boxShadow: favorites.has(num) ? `inset 3px 0 0 ${teamColor}` : 'none',
                         }}
                         onClick={() => toggleExpanded(num)}
                         onMouseEnter={e => {
-                          if (!isExpanded) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.02)'
+                          setHoveredRow(num)
+                          if (!isExpanded && !favorites.has(num)) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.02)'
                         }}
                         onMouseLeave={e => {
-                          if (!isExpanded) (e.currentTarget as HTMLElement).style.background = pos <= 3 ? `${teamColor}06` : 'transparent'
+                          setHoveredRow(null)
+                          if (!isExpanded) (e.currentTarget as HTMLElement).style.background = favorites.has(num) ? `${teamColor}12` : pos <= 3 ? `${teamColor}06` : 'transparent'
                         }}
                       >
                         <span className="font-black text-sm" style={{ color: pos === 1 ? 'var(--f1-red)' : pos <= 3 ? '#fff' : 'var(--f1-muted)' }}>
@@ -922,6 +950,7 @@ export default function LiveTimingPage() {
                           <div className="flex items-center gap-1.5 mb-0.5">
                             <DriverFlag countryCode={data.CountryCode?.toLowerCase()} />
                             <span className="font-bold text-sm truncate">{acronym}</span>
+                            {favorites.has(num) && <span style={{ color: '#facc15', fontSize: 11 }}>★</span>}
                             {statusLabel && (
                               <span className="text-xs font-bold px-1.5 py-0.5 rounded" style={{ background: statusColor + '20', color: statusColor }}>
                                 {statusLabel}
@@ -967,6 +996,21 @@ export default function LiveTimingPage() {
                         <span className="text-xs text-center font-bold" style={{ color: 'var(--f1-muted)' }}>
                           {data.NumberOfPitStops ?? '—'}
                         </span>
+
+                        {/* Star favorite button */}
+                        <button
+                          onClick={e => toggleFavorite(num, e)}
+                          style={{
+                            opacity: hoveredRow === num || favorites.has(num) ? 1 : 0,
+                            transition: 'opacity 0.15s',
+                            color: favorites.has(num) ? '#facc15' : 'rgba(255,255,255,0.3)',
+                            fontSize: 14, background: 'none', border: 'none',
+                            cursor: 'pointer', padding: '0 4px', flexShrink: 0,
+                          }}
+                          title={favorites.has(num) ? 'Quitar favorito' : 'Agregar favorito'}
+                        >
+                          {favorites.has(num) ? '★' : '☆'}
+                        </button>
                       </div>
 
                       {/* Panel expandido desktop */}
