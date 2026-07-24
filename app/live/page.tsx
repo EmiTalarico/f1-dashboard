@@ -190,11 +190,14 @@ function getSectorTimeColor(
 }
 
 // ── Hooks ──────────────────────────────────────────────────────────────────
-function useExtrapolatedClock(clock: any): string {
+function useExtrapolatedClock(clock: any, paused: boolean): string {
   const [remaining, setRemaining] = useState('')
+  const frozenRef = useRef<string>('')
+
   useEffect(() => {
     if (!clock?.Remaining) { setRemaining(''); return }
     if (!clock.Extrapolating) { setRemaining(clock.Remaining); return }
+
     const calc = () => {
       const [h, m, s] = clock.Remaining.split(':').map(Number)
       const total = h * 3600 + m * 60 + s
@@ -205,10 +208,21 @@ function useExtrapolatedClock(clock: any): string {
       const ls = Math.floor(left % 60)
       return `${lh > 0 ? lh + ':' : ''}${String(lm).padStart(2, '0')}:${String(ls).padStart(2, '0')}`
     }
+
+    if (paused) {
+      // Congelar el valor actual
+      if (!frozenRef.current) frozenRef.current = calc()
+      setRemaining(frozenRef.current)
+      return
+    }
+
+    // Cuando se reanuda, resetear el frozen
+    frozenRef.current = ''
     setRemaining(calc())
     const iv = setInterval(() => setRemaining(calc()), 1000)
     return () => clearInterval(iv)
-  }, [clock])
+  }, [clock, paused])
+
   return remaining
 }
 
@@ -654,7 +668,7 @@ export default function LiveTimingPage() {
 
   // ── Derived state ────────────────────────────────────────────────────────
   const clock = liveState?.session_data?.Clock
-  const remainingTime = useExtrapolatedClock(clock)
+  const remainingTime = useExtrapolatedClock(clock, paused)
   const sessionName = liveState?.session?.Name ?? ''
   const sessionLabel = SESSION_LABELS[sessionName] ?? sessionName
   const sessionColor = SESSION_COLORS[sessionName] ?? '#888'
@@ -779,14 +793,48 @@ export default function LiveTimingPage() {
                 onClick={togglePause}
                 className="text-xs font-bold px-3 py-1.5 rounded-xl transition-all duration-150 active:scale-95"
                 style={{
-                  background: paused ? 'rgba(255,215,0,0.12)' : 'rgba(255,255,255,0.06)',
+                  background: paused ? 'rgba(255,215,0,0.15)' : 'rgba(255,255,255,0.06)',
                   color: paused ? '#ffd700' : 'var(--f1-muted)',
-                  border: `1px solid ${paused ? 'rgba(255,215,0,0.3)' : 'var(--f1-card-border)'}`,
+                  border: `1px solid ${paused ? 'rgba(255,215,0,0.4)' : 'var(--f1-card-border)'}`,
+                  boxShadow: paused ? '0 0 12px rgba(255,215,0,0.15)' : 'none',
                 }}
               >
-                {paused ? `⏸ Pausado +${bufferCount}` : '⏸ Pausar'}
+                {paused ? '▶ Reanudar' : '⏸ Pausar'}
               </button>
-              <span className="text-xs font-mono" style={{ color: 'var(--f1-muted)' }}>delay {delaySeconds}s</span>
+
+              {/* Controles de delay */}
+              <button
+                onClick={() => {
+                  extraDelayRef.current = Math.max(0, extraDelayRef.current - 5000)
+                  setDelaySeconds(Math.round((BASE_DELAY_MS + extraDelayRef.current) / 1000))
+                }}
+                className="text-xs font-bold px-2.5 py-1.5 rounded-xl transition-all duration-150 active:scale-95"
+                style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--f1-muted)', border: '1px solid var(--f1-card-border)' }}
+                title="Reducir delay 5 segundos"
+              >−5s</button>
+
+              <span
+                className="text-xs font-mono px-2 py-1 rounded-lg"
+                style={{
+                  background: 'rgba(255,255,255,0.04)',
+                  color: paused ? '#ffd700' : 'var(--f1-muted)',
+                  border: '1px solid var(--f1-card-border)',
+                  minWidth: 52,
+                  textAlign: 'center',
+                }}
+              >
+                {paused ? '⏸ ' : ''}{delaySeconds}s
+              </span>
+
+              <button
+                onClick={() => {
+                  extraDelayRef.current += 5000
+                  setDelaySeconds(Math.round((BASE_DELAY_MS + extraDelayRef.current) / 1000))
+                }}
+                className="text-xs font-bold px-2.5 py-1.5 rounded-xl transition-all duration-150 active:scale-95"
+                style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--f1-muted)', border: '1px solid var(--f1-card-border)' }}
+                title="Aumentar delay 5 segundos"
+              >+5s</button>
             </div>
           </div>
         </div>
