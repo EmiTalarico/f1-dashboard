@@ -46,6 +46,11 @@ const Icons: Record<string, ReactElement> = {
       <path d="M6 9l1-4h10l1 4"/>
     </svg>
   ),
+  clasificacion: (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 3h18M3 9h18M3 15h12M3 21h8"/>
+  </svg>
+ ),
   telemetria: (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
@@ -80,8 +85,9 @@ const NAV_GROUPS = [
   {
     label: 'Datos',
     items: [
-      { href: '/telemetria', label: 'Telemetría', icon: 'telemetria' },
-      { href: '/live',       label: 'Live',       icon: 'live'       },
+      { href: '/clasificacion', label: 'Clasificación', icon: 'clasificacion' },
+      { href: '/telemetria',    label: 'Telemetría',    icon: 'telemetria' },
+      { href: '/live',          label: 'Live',          icon: 'live'       },
     ],
   },
 ]
