@@ -1001,9 +1001,8 @@ export default function LiveTimingPage() {
                         <button
                           onClick={e => toggleFavorite(num, e)}
                           style={{
-                            opacity: hoveredRow === num || favorites.has(num) ? 1 : 0,
-                            transition: 'opacity 0.15s',
-                            color: favorites.has(num) ? '#facc15' : 'rgba(255,255,255,0.3)',
+                            opacity: 1,
+                            color: favorites.has(num) ? '#facc15' : 'rgba(255,255,255,0.2)',
                             fontSize: 14, background: 'none', border: 'none',
                             cursor: 'pointer', padding: '0 4px', flexShrink: 0,
                           }}

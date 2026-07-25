@@ -2,9 +2,14 @@ import json
 import asyncio
 import logging
 import aiohttp
+import os
+import time
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+STATE_FILE = "last_session.json"
+SAVE_INTERVAL = 10  # segundos entre guardados
 
 state = {
     "connected": False,
@@ -21,137 +26,132 @@ state = {
 listeners = []
 _current_session_key = None
 _http_session: aiohttp.ClientSession | None = None
-
 _position_owner: dict[str, str] = {}
-
-_last_sector_log_at: float = 0
-_SECTOR_LOG_INTERVAL = 15  # segundos
-
-# Rastreo de vueltas por piloto para detectar vuelta nueva
 _driver_lap_count: dict[str, int] = {}
+_last_sector_log_at: float = 0
+_last_save_at: float = 0
+_SECTOR_LOG_INTERVAL = 15
 
+
+# ── Persistencia ──────────────────────────────────────────────────────────────
+
+def save_state():
+    """Guarda el estado actual en disco."""
+    global _last_save_at
+    now = time.time()
+    if now - _last_save_at < SAVE_INTERVAL:
+        return
+    _last_save_at = now
+    try:
+        data = {
+            "session": state["session"],
+            "timing": state["timing"],
+            "tyres": state["tyres"],
+            "weather": state["weather"],
+            "race_control": state["race_control"],
+            "session_data": state["session_data"],
+            "track_status": state["track_status"],
+            "timing_stats": state["timing_stats"],
+        }
+        with open(STATE_FILE, "w") as f:
+            json.dump(data, f)
+    except Exception as e:
+        logger.warning(f"Error guardando estado: {e}")
+
+
+def load_state():
+    """Carga el último estado guardado al arrancar."""
+    if not os.path.exists(STATE_FILE):
+        logger.info("No hay estado previo guardado")
+        return
+    try:
+        with open(STATE_FILE, "r") as f:
+            data = json.load(f)
+        for key in ("session", "timing", "tyres", "weather", "race_control",
+                    "session_data", "track_status", "timing_stats"):
+            if key in data:
+                state[key] = data[key]
+        logger.info(f"✅ Estado previo cargado — {len(state['timing'])} pilotos, sesión: {state['session'].get('Name', 'desconocida')}")
+    except Exception as e:
+        logger.warning(f"Error cargando estado previo: {e}")
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _check_position_conflict(num: str, position: str):
     prev_owner = _position_owner.get(position)
     if prev_owner and prev_owner != num:
-        logger.warning(
-            f"⚠️ CONFLICTO Position={position}: antes #{prev_owner}, ahora #{num}"
-        )
+        logger.warning(f"⚠️ CONFLICTO Position={position}: antes #{prev_owner}, ahora #{num}")
     _position_owner[position] = num
 
 
 def _log_sector_sample():
     global _last_sector_log_at
-    import time
     now = time.time()
     if now - _last_sector_log_at < _SECTOR_LOG_INTERVAL:
         return
     _last_sector_log_at = now
-
     leader_num = _position_owner.get("1")
     if not leader_num:
         return
     driver = state["timing"].get(leader_num)
     if not driver or "Sectors" not in driver:
         return
-
     summary = {}
     for s_key, sector in driver["Sectors"].items():
         segs = sector.get("Segments", {})
         seg_keys = sorted(segs.keys(), key=lambda x: int(x))
-        summary[f"S{int(s_key)+1}"] = {
-            "count": len(segs),
-            "keys": seg_keys,
-        }
+        summary[f"S{int(s_key)+1}"] = {"count": len(segs), "keys": seg_keys}
     logger.info(f"🧭 SECTORS líder #{leader_num}: {summary}")
 
 
 def _reset_driver_sectors(number: str):
-    """
-    Limpia los segmentos de todos los sectores de un piloto al empezar
-    una vuelta nueva. Conserva los tiempos de sector (Value) de la vuelta
-    anterior hasta que lleguen los nuevos — así no se ve un flash en blanco.
-    """
     driver = state["timing"].get(number)
     if not driver or "Sectors" not in driver:
         return
     for s_key in driver["Sectors"]:
         sector = driver["Sectors"][s_key]
         if isinstance(sector, dict) and "Segments" in sector:
-            # Limpiamos los segmentos pero dejamos el tiempo visible
             sector["Segments"] = {}
     logger.debug(f"🔄 Sectores reseteados para piloto #{number}")
 
 
 def _merge_sectors(prev_sectors: dict, new_sectors: dict) -> dict:
-    """
-    Merge profundo de sectores acumulando segmentos.
-
-    Reglas:
-    - Los segmentos se acumulan — nunca reemplazar el dict entero
-    - Status 0 (no pasado aún) NO sobreescribe un status con color ya registrado
-    - Los demás campos del sector (Value, OverallFastest, etc.) sí se reemplazan
-      porque el feed los manda completos cuando el sector termina
-    """
     merged = dict(prev_sectors)
-
     for s_key, new_sector in new_sectors.items():
         if not isinstance(new_sector, dict):
             merged[s_key] = new_sector
             continue
-
         prev_sector = merged.get(s_key, {})
         if not isinstance(prev_sector, dict):
             merged[s_key] = new_sector
             continue
-
-        # Merge de campos del sector sin tocar Segments
         merged_sector = {
             **prev_sector,
             **{k: v for k, v in new_sector.items() if k != "Segments"}
         }
-
-        # Merge de segmentos con regla: status 0 no sobreescribe color
         if "Segments" in new_sector and isinstance(new_sector["Segments"], dict):
             prev_segs = prev_sector.get("Segments", {})
             if not isinstance(prev_segs, dict):
                 prev_segs = {}
-
             merged_segs = dict(prev_segs)
             for seg_key, seg_val in new_sector["Segments"].items():
                 if not isinstance(seg_val, dict):
                     merged_segs[seg_key] = seg_val
                     continue
-
                 new_status = seg_val.get("Status", 0)
                 prev_status = prev_segs.get(seg_key, {}).get("Status", 0) if isinstance(prev_segs.get(seg_key), dict) else 0
-
-                # Status 0 = "no pasado aún" — no sobreescribe un color ya pintado
                 if new_status == 0 and prev_status != 0:
                     continue
-
                 merged_segs[seg_key] = seg_val
-
             merged_sector["Segments"] = merged_segs
-
         elif "Segments" in prev_sector:
-            # No llegaron segmentos nuevos — conservar los previos
             merged_sector["Segments"] = prev_sector["Segments"]
-
         merged[s_key] = merged_sector
-
     return merged
 
 
 def _detect_new_lap(number: str, data: dict) -> bool:
-    """
-    Detecta si el mensaje indica que el piloto empezó una vuelta nueva.
-    Señales:
-    1. NumberOfLaps incrementó respecto al último conocido
-    2. El sector 0 llegó con Segments vacío o con todos en status 0,
-       después de haber tenido segmentos con color — indica reset del feed
-    """
-    # Señal 1: NumberOfLaps por piloto
     if "NumberOfLaps" in data:
         new_laps = data["NumberOfLaps"]
         if isinstance(new_laps, (int, float)):
@@ -160,9 +160,6 @@ def _detect_new_lap(number: str, data: dict) -> bool:
                 _driver_lap_count[number] = int(new_laps)
                 return True
             _driver_lap_count[number] = int(new_laps)
-
-    # Señal 2: S0 llega con Segments donde todos son status 0,
-    # pero el piloto tenía segmentos con color en S0
     if "Sectors" in data and isinstance(data["Sectors"], dict):
         new_s0 = data["Sectors"].get("0")
         if isinstance(new_s0, dict) and "Segments" in new_s0:
@@ -173,7 +170,6 @@ def _detect_new_lap(number: str, data: dict) -> bool:
                     for v in new_segs.values()
                 )
                 if all_zero:
-                    # Verificar que antes había segmentos con color en S0
                     prev_driver = state["timing"].get(number, {})
                     prev_s0 = prev_driver.get("Sectors", {}).get("0", {})
                     prev_segs = prev_s0.get("Segments", {}) if isinstance(prev_s0, dict) else {}
@@ -183,41 +179,27 @@ def _detect_new_lap(number: str, data: dict) -> bool:
                     )
                     if had_color:
                         return True
-
     return False
 
 
 def _apply_timing_update(number: str, data: dict):
-    """
-    Aplica una actualización parcial de timing a un piloto con merge
-    profundo de Sectors/Segments y detección de vuelta nueva.
-    """
     if number not in state["timing"]:
         state["timing"][number] = {}
-
     driver = state["timing"][number]
-
-    # Detectar vuelta nueva ANTES de aplicar el update
     if _detect_new_lap(number, data):
         logger.debug(f"🔄 Nueva vuelta detectada para piloto #{number}")
         _reset_driver_sectors(number)
-
-    # Posición
     if "Line" in data:
         pos = str(data["Line"])
         _check_position_conflict(number, pos)
         driver["Position"] = pos
-
     if "Position" in data:
         pos = str(data["Position"])
         _check_position_conflict(number, pos)
         driver["Position"] = pos
-
-    # Resto de campos con merge profundo para Sectors
     for k, v in data.items():
         if v is None or k in ("Line", "Position"):
             continue
-
         if k == "Sectors" and isinstance(v, dict):
             prev_sectors = driver.get("Sectors", {})
             if not isinstance(prev_sectors, dict):
@@ -287,8 +269,6 @@ async def fetch_static_stints(session_info: dict):
                                         state["tyres"][number]["Stints"][stint_key][k] = v
                 notify_listeners("tyres", state["tyres"])
                 logger.info(f"✅ Stints estáticos cargados para {len(lines)} pilotos")
-            else:
-                logger.warning(f"Stints estáticos no disponibles aún (status {r.status})")
     except Exception as e:
         logger.error(f"Error fetching stints estáticos: {e}")
 
@@ -307,6 +287,7 @@ def process_message(topic: str, msg):
                 reset_session_state()
             state["session"] = msg
             notify_listeners("session", msg)
+            save_state()
 
         elif topic == "SessionData":
             if isinstance(msg, dict):
@@ -323,6 +304,7 @@ def process_message(topic: str, msg):
                 _apply_timing_update(number, data)
             notify_listeners("timing", state["timing"])
             _log_sector_sample()
+            save_state()
 
         elif topic == "TimingDataF1":
             lines = msg.get("Lines", {})
@@ -358,10 +340,12 @@ def process_message(topic: str, msg):
                     if k != "Stints" and v is not None:
                         state["tyres"][number][k] = v
             notify_listeners("tyres", state["tyres"])
+            save_state()
 
         elif topic == "WeatherData":
             state["weather"] = msg
             notify_listeners("weather", msg)
+            save_state()
 
         elif topic == "RaceControlMessages":
             messages = msg.get("Messages", {})
@@ -375,6 +359,7 @@ def process_message(topic: str, msg):
                         state["race_control"].append(m)
             state["race_control"] = state["race_control"][-20:]
             notify_listeners("race_control", state["race_control"])
+            save_state()
 
         elif topic == "DriverList":
             if not isinstance(msg, dict):
@@ -394,6 +379,7 @@ def process_message(topic: str, msg):
                         else:
                             state["timing"][number][field] = data[field]
             notify_listeners("timing", state["timing"])
+            save_state()
 
         elif topic == "TrackStatus":
             state["track_status"] = msg
@@ -410,6 +396,7 @@ def process_message(topic: str, msg):
                     state["timing_stats"][number] = {}
                 state["timing_stats"][number].update(data)
             notify_listeners("timing_stats", state["timing_stats"])
+            save_state()
 
         elif topic == "LapCount":
             state["session_data"]["LapCount"] = msg
@@ -430,13 +417,14 @@ def process_message(topic: str, msg):
 async def start_live_client():
     global _http_session
 
+    # Cargar estado previo al arrancar
+    load_state()
+
     while True:
         try:
             logger.info("Negociando conexión con F1...")
-
             async with aiohttp.ClientSession() as http:
                 _http_session = http
-
                 async with http.post(
                     "https://livetiming.formula1.com/signalrcore/negotiate?negotiateVersion=1",
                     headers={"User-Agent": "BestHTTP"},
@@ -461,21 +449,11 @@ async def start_live_client():
                         "invocationId": "0",
                         "target": "Subscribe",
                         "arguments": [[
-                            "Heartbeat",
-                            "SessionInfo",
-                            "SessionStatus",
-                            "SessionData",
-                            "TimingData",
-                            "TimingDataF1",
-                            "TimingAppData",
-                            "TimingStats",
-                            "TrackStatus",
-                            "DriverList",
-                            "WeatherData",
-                            "RaceControlMessages",
-                            "LapCount",
-                            "ExtrapolatedClock",
-                            "TopThree",
+                            "Heartbeat", "SessionInfo", "SessionStatus",
+                            "SessionData", "TimingData", "TimingDataF1",
+                            "TimingAppData", "TimingStats", "TrackStatus",
+                            "DriverList", "WeatherData", "RaceControlMessages",
+                            "LapCount", "ExtrapolatedClock", "TopThree",
                         ]],
                     }
                     await ws.send_str(json.dumps(subscribe) + "\x1e")
