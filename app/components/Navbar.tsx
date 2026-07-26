@@ -294,6 +294,40 @@ export default function Navbar() {
           <NavGroups collapsed={collapsed} />
         </nav>
 
+        {/* Cafecito */}
+        <div className="mt-4 mb-2" style={{ padding: collapsed ? '0 8px' : '0 4px' }}>
+          {collapsed ? (
+            <a
+              href="https://cafecito.app/f1pasion"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center w-10 h-10 mx-auto rounded-xl transition-all duration-150 hover:scale-105"
+              style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)' }}
+              title="Hacete un Donout 🍩"
+            >
+              🍩
+            </a>
+          ) : (
+            <a
+              href="https://cafecito.app/f1pasion"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl transition-all duration-150 hover:scale-[1.02]"
+              style={{
+                background: 'linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04))',
+                border: '1px solid rgba(255,255,255,0.1)',
+              }}
+            >
+              <span className="text-lg">🍩</span>
+              <div>
+                <div className="text-xs font-bold" style={{ color: '#fff' }}>Hacete un Donout</div>
+                <div className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>cafecito.app/f1pasion</div>
+              </div>
+            </a>
+          )}
+        </div>
+
+
         {/* Línea roja de acento inferior */}
         <div
           className="mt-6 mx-auto rounded-full"
@@ -377,6 +411,26 @@ export default function Navbar() {
         <nav className="flex-1">
           <NavGroups collapsed={false} />
         </nav>
+
+        {/* Cafecito mobile */}
+        <div className="mt-4">
+          <a
+            href="https://cafecito.app/f1pasion"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl transition-all duration-150"
+            style={{
+              background: 'linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04))',
+              border: '1px solid rgba(255,255,255,0.1)',
+            }}
+          >
+            <span className="text-lg">🍩</span>
+            <div>
+              <div className="text-xs font-bold" style={{ color: '#fff' }}>Hacete un Donout</div>
+              <div className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>cafecito.app/f1pasion</div>
+            </div>
+          </a>
+        </div>
 
         {/* Acento inferior */}
         <div
