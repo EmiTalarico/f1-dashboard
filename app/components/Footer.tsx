@@ -18,7 +18,7 @@ export default function Footer() {
           Un proyecto independiente hecho con{' '}
           <span style={{ color: 'var(--f1-red)' }}>❤️</span>{' '}
           para fanáticos de la Fórmula 1. Sin afiliación oficial con la FIA,
-          Formula 1 ni ninguna escudería. Solo pasión pura por el deporte.
+          Formula 1 ni ninguna escudería. Solo pasión pura por el Motorsport!
         </p>
 
         {/* Cafecito */}
