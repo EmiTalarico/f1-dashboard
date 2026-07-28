@@ -8,8 +8,26 @@ import time
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-STATE_FILE = "last_session.json"
 SAVE_INTERVAL = 10
+REDIS_KEY = "f1:live_state"
+
+# Redis client — opcional, funciona sin Redis también
+_redis = None
+
+async def init_redis():
+    global _redis
+    redis_url = os.environ.get("REDIS_URL")
+    if not redis_url:
+        logger.warning("REDIS_URL no encontrada — estado no será persistido")
+        return
+    try:
+        import redis.asyncio as aioredis
+        _redis = aioredis.from_url(redis_url, decode_responses=True)
+        await _redis.ping()
+        logger.info("✅ Redis conectado")
+    except Exception as e:
+        logger.warning(f"Redis no disponible: {e} — continuando sin persistencia")
+        _redis = None
 
 state = {
     "connected": False,
@@ -35,12 +53,14 @@ _SECTOR_LOG_INTERVAL = 15
 
 # ── Persistencia ──────────────────────────────────────────────────────────────
 
-def save_state():
+async def save_state_async():
     global _last_save_at
     now = time.time()
     if now - _last_save_at < SAVE_INTERVAL:
         return
     _last_save_at = now
+    if not _redis:
+        return
     try:
         data = {
             "session": state["session"],
@@ -52,26 +72,38 @@ def save_state():
             "track_status": state["track_status"],
             "timing_stats": state["timing_stats"],
         }
-        with open(STATE_FILE, "w") as f:
-            json.dump(data, f)
+        await _redis.set(REDIS_KEY, json.dumps(data), ex=86400 * 7)  # expira en 7 días
     except Exception as e:
-        logger.warning(f"Error guardando estado: {e}")
+        logger.warning(f"Error guardando en Redis: {e}")
 
 
-def load_state():
-    if not os.path.exists(STATE_FILE):
-        logger.info("No hay estado previo guardado")
+def save_state():
+    """Wrapper sync que lanza la corutina sin bloquear."""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.ensure_future(save_state_async())
+    except Exception:
+        pass
+
+
+async def load_state():
+    if not _redis:
+        logger.info("Sin Redis — arrancando con estado vacío")
         return
     try:
-        with open(STATE_FILE, "r") as f:
-            data = json.load(f)
+        raw = await _redis.get(REDIS_KEY)
+        if not raw:
+            logger.info("No hay estado previo en Redis")
+            return
+        data = json.loads(raw)
         for key in ("session", "timing", "tyres", "weather", "race_control",
                     "session_data", "track_status", "timing_stats"):
             if key in data:
                 state[key] = data[key]
-        logger.info(f"✅ Estado previo cargado — {len(state['timing'])} pilotos, sesión: {state['session'].get('Name', 'desconocida')}")
+        logger.info(f"✅ Estado previo cargado desde Redis — {len(state['timing'])} pilotos, sesión: {state['session'].get('Name', 'desconocida')}")
     except Exception as e:
-        logger.warning(f"Error cargando estado previo: {e}")
+        logger.warning(f"Error cargando estado desde Redis: {e}")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -139,7 +171,6 @@ def _merge_sectors(prev_sectors: dict, new_sectors: dict) -> dict:
                     continue
                 new_status = seg_val.get("Status", 0)
                 prev_status = prev_segs.get(seg_key, {}).get("Status", 0) if isinstance(prev_segs.get(seg_key), dict) else 0
-                # Status 0 no sobreescribe un color ya pintado
                 if new_status == 0 and prev_status != 0:
                     continue
                 merged_segs[seg_key] = seg_val
@@ -151,14 +182,6 @@ def _merge_sectors(prev_sectors: dict, new_sectors: dict) -> dict:
 
 
 def _detect_new_lap(number: str, data: dict) -> bool:
-    """
-    Detecta si el mensaje indica que el piloto empezó una vuelta nueva.
-    
-    FIX: La señal 2 (segmentos en cero) ahora requiere que lleguen al menos
-    4 segmentos del sector 0 en status 0 para evitar falsos positivos con
-    updates parciales que solo traen 1-2 segmentos.
-    """
-    # Señal 1: NumberOfLaps incrementó
     if "NumberOfLaps" in data:
         new_laps = data["NumberOfLaps"]
         if isinstance(new_laps, (int, float)):
@@ -168,8 +191,6 @@ def _detect_new_lap(number: str, data: dict) -> bool:
                 return True
             _driver_lap_count[number] = int(new_laps)
 
-    # Señal 2: S0 llega con MÚLTIPLES segmentos en status 0
-    # (mínimo 4 para evitar falsos positivos con updates parciales)
     if "Sectors" in data and isinstance(data["Sectors"], dict):
         new_s0 = data["Sectors"].get("0")
         if isinstance(new_s0, dict) and "Segments" in new_s0:
@@ -196,21 +217,17 @@ def _apply_timing_update(number: str, data: dict):
     if number not in state["timing"]:
         state["timing"][number] = {}
     driver = state["timing"][number]
-
     if _detect_new_lap(number, data):
         logger.debug(f"🔄 Nueva vuelta detectada para piloto #{number}")
         _reset_driver_sectors(number)
-
     if "Line" in data:
         pos = str(data["Line"])
         _check_position_conflict(number, pos)
         driver["Position"] = pos
-
     if "Position" in data:
         pos = str(data["Position"])
         _check_position_conflict(number, pos)
         driver["Position"] = pos
-
     for k, v in data.items():
         if v is None or k in ("Line", "Position"):
             continue
@@ -310,10 +327,9 @@ def process_message(topic: str, msg):
 
         elif topic == "TimingData":
             lines = msg.get("Lines", {})
-            # FIX: a veces Lines llega como lista en lugar de dict
             if not isinstance(lines, dict):
                 if isinstance(lines, list):
-                    logger.warning(f"TimingData Lines llegó como lista, ignorando")
+                    logger.warning("TimingData Lines llegó como lista, ignorando")
                 return
             for number, data in lines.items():
                 if not isinstance(data, dict):
@@ -325,10 +341,9 @@ def process_message(topic: str, msg):
 
         elif topic == "TimingDataF1":
             lines = msg.get("Lines", {})
-            # FIX: mismo guard para TimingDataF1
             if not isinstance(lines, dict):
                 if isinstance(lines, list):
-                    logger.warning(f"TimingDataF1 Lines llegó como lista, ignorando")
+                    logger.warning("TimingDataF1 Lines llegó como lista, ignorando")
                 return
             for number, data in lines.items():
                 if not isinstance(data, dict):
@@ -437,7 +452,8 @@ def process_message(topic: str, msg):
 async def start_live_client():
     global _http_session
 
-    load_state()
+    await init_redis()
+    await load_state()
 
     while True:
         try:
