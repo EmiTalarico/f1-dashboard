@@ -55,7 +55,6 @@ function StatBox({ label, value, color }: { label: string; value: string | numbe
   )
 }
 
-
 function Dropdown({
   label, value, options, onChange,
 }: {
@@ -136,7 +135,6 @@ function Dropdown({
 function DriverCard({ driver, onClick }: { driver: DriverProfile; onClick: () => void }) {
   const [hovered, setHovered] = useState(false)
   const mainTeamColor = driver.teams[driver.teams.length - 1]?.color ?? '#fff'
-  const hasPhoto = true // asumimos que la foto existe; si no, se muestra placeholder
 
   return (
     <button
@@ -151,21 +149,14 @@ function DriverCard({ driver, onClick }: { driver: DriverProfile; onClick: () =>
         transform: hovered ? 'translateY(-2px)' : 'none',
       }}
     >
-      {/* Barra de color del equipo */}
       <div className="h-[3px]" style={{ background: mainTeamColor }} />
-
       <div className="flex gap-0">
-        {/* Foto */}
-        <div
-          className="relative shrink-0"
-          style={{ width: 100, height: 120, background: 'rgba(255,255,255,0.04)' }}
-        >
+        <div className="relative shrink-0" style={{ width: 100, height: 120, background: 'rgba(255,255,255,0.04)' }}>
           <img
             src={`/drivers/${driver.id}.webp`}
             alt={`${driver.firstName} ${driver.lastName}`}
             className="w-full h-full object-cover object-top"
             onError={e => {
-              // Placeholder con iniciales si no hay foto
               const el = e.currentTarget
               el.style.display = 'none'
               const parent = el.parentElement
@@ -179,8 +170,6 @@ function DriverCard({ driver, onClick }: { driver: DriverProfile; onClick: () =>
             }}
           />
         </div>
-
-        {/* Info */}
         <div className="flex-1 px-3 py-3 min-w-0">
           <div className="flex items-start justify-between gap-1 mb-1">
             <div>
@@ -193,27 +182,16 @@ function DriverCard({ driver, onClick }: { driver: DriverProfile; onClick: () =>
               </span>
             )}
           </div>
-
           <div className="flex items-center gap-1.5 mb-2">
-            <img
-              src={`https://flagcdn.com/w20/${driver.countryCode}.png`}
-              alt={driver.nationality}
-              className="w-4 h-3 object-cover rounded-sm"
-            />
+            <img src={`https://flagcdn.com/w20/${driver.countryCode}.png`} alt={driver.nationality} className="w-4 h-3 object-cover rounded-sm" />
             <span className="text-xs" style={{ color: 'var(--f1-muted)' }}>{driver.nationality}</span>
           </div>
-
           <div className="flex items-center gap-2 flex-wrap">
             {driver.championships > 0 && (
-              <span className="text-xs font-bold" style={{ color: '#facc15' }}>
-                🏆 {driver.championships}
-              </span>
+              <span className="text-xs font-bold" style={{ color: '#facc15' }}>🏆 {driver.championships}</span>
             )}
-            <span className="text-xs" style={{ color: 'var(--f1-muted)' }}>
-              {driver.wins} victorias
-            </span>
+            <span className="text-xs" style={{ color: 'var(--f1-muted)' }}>{driver.wins} victorias</span>
           </div>
-
           <div className="mt-2 text-xs truncate" style={{ color: mainTeamColor }}>
             {driver.teams[driver.teams.length - 1]?.team}
           </div>
@@ -223,8 +201,183 @@ function DriverCard({ driver, onClick }: { driver: DriverProfile; onClick: () =>
   )
 }
 
+// ─── Tipos para resultados de temporada ───────────────────────────────────────
+
+type RaceResult = {
+  round: string
+  raceName: string
+  date: string
+  position: string
+  positionText: string
+  points: string
+  grid: string
+  status: string
+  fastestLapRank: string | null
+  fastestLapTime: string | null
+}
+
+function positionLabel(pos: string, posText: string) {
+  if (posText === 'R') return { label: 'RET', color: '#f87171' }
+  if (posText === 'D') return { label: 'DSQ', color: '#f87171' }
+  if (posText === 'W') return { label: 'WD', color: '#a0a0a0' }
+  if (posText === 'F') return { label: 'DNF', color: '#f87171' }
+  const n = parseInt(pos)
+  if (n === 1) return { label: '1°', color: '#facc15' }
+  if (n === 2) return { label: '2°', color: '#d1d5db' }
+  if (n === 3) return { label: '3°', color: '#cd7f32' }
+  return { label: `${n}°`, color: 'inherit' }
+}
+
+function gpShortName(name: string) {
+  return name
+    .replace(' Grand Prix', '')
+    .replace(' Gran Premio', '')
+    .replace('Grand Prix of ', '')
+    .trim()
+}
+
+function SeasonTab({ driver, teamColor }: { driver: DriverProfile; teamColor: string }) {
+  const [results, setResults] = useState<RaceResult[] | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
+
+  useEffect(() => {
+    setLoading(true)
+    setError(false)
+    fetch(`https://api.jolpi.ca/ergast/f1/2026/drivers/${driver.id}/results/?format=json`)
+      .then(r => r.json())
+      .then(data => {
+        const races = data?.MRData?.RaceTable?.Races ?? []
+        const parsed: RaceResult[] = races.map((r: any) => {
+          const res = r.Results[0]
+          return {
+            round: r.round,
+            raceName: r.raceName,
+            date: r.date,
+            position: res.position,
+            positionText: res.positionText,
+            points: res.points,
+            grid: res.grid,
+            status: res.status,
+            fastestLapRank: res.FastestLap?.rank ?? null,
+            fastestLapTime: res.FastestLap?.Time?.time ?? null,
+          }
+        })
+        setResults(parsed)
+      })
+      .catch(() => setError(true))
+      .finally(() => setLoading(false))
+  }, [driver.id])
+
+  // Totales
+  const totals = useMemo(() => {
+    if (!results) return null
+    const pts = results.reduce((acc, r) => acc + parseFloat(r.points || '0'), 0)
+    const wins = results.filter(r => r.position === '1').length
+    const podiums = results.filter(r => ['1','2','3'].includes(r.position)).length
+    const fl = results.filter(r => r.fastestLapRank === '1').length
+    return { pts, wins, podiums, fl }
+  }, [results])
+
+  if (loading) return (
+    <div className="px-5 py-8 flex flex-col gap-3">
+      {[...Array(5)].map((_, i) => (
+        <div key={i} className="h-10 rounded-xl animate-pulse" style={{ background: 'rgba(255,255,255,0.05)' }} />
+      ))}
+    </div>
+  )
+
+  if (error) return (
+    <div className="px-5 py-10 text-center text-sm" style={{ color: 'var(--f1-muted)' }}>
+      No se pudieron cargar los resultados. Intentá de nuevo más tarde.
+    </div>
+  )
+
+  if (!results || results.length === 0) return (
+    <div className="px-5 py-10 text-center text-sm" style={{ color: 'var(--f1-muted)' }}>
+      Sin resultados disponibles para la temporada 2026.
+    </div>
+  )
+
+  return (
+    <div className="px-5 pb-5">
+      {/* Resumen de temporada */}
+      {totals && (
+        <div className="grid grid-cols-4 gap-2 mb-4">
+          <StatBox label="Puntos" value={totals.pts} color={teamColor} />
+          <StatBox label="Victorias" value={totals.wins} color={totals.wins > 0 ? '#facc15' : undefined} />
+          <StatBox label="Podios" value={totals.podiums} />
+          <StatBox label="V. Rápidas" value={totals.fl} color={totals.fl > 0 ? '#a855f7' : undefined} />
+        </div>
+      )}
+
+      {/* Tabla de resultados */}
+      <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--f1-card-border)' }}>
+        {/* Header */}
+        <div
+          className="grid text-xs font-bold uppercase tracking-wider px-3 py-2"
+          style={{
+            gridTemplateColumns: '2rem 1fr 2.5rem 3rem 2.5rem',
+            background: 'rgba(255,255,255,0.04)',
+            color: 'var(--f1-muted)',
+            borderBottom: '1px solid var(--f1-card-border)',
+          }}
+        >
+          <span>Rd</span>
+          <span>Gran Premio</span>
+          <span className="text-center">Pos</span>
+          <span className="text-center">Pts</span>
+          <span className="text-center">Sal</span>
+        </div>
+
+        {/* Filas */}
+        {results.map((r, i) => {
+          const { label, color } = positionLabel(r.position, r.positionText)
+          const isFl = r.fastestLapRank === '1'
+          const isLast = i === results.length - 1
+
+          return (
+            <div
+              key={r.round}
+              className="grid items-center px-3 py-2.5 text-sm"
+              style={{
+                gridTemplateColumns: '2rem 1fr 2.5rem 3rem 2.5rem',
+                borderBottom: isLast ? 'none' : '1px solid rgba(255,255,255,0.04)',
+                background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)',
+              }}
+            >
+              <span className="text-xs" style={{ color: 'var(--f1-muted)' }}>{r.round}</span>
+              <span className="truncate pr-2">
+                {gpShortName(r.raceName)}
+                {isFl && (
+                  <span className="ml-1.5 text-xs font-bold" style={{ color: '#a855f7' }} title="Vuelta rápida">⚡</span>
+                )}
+              </span>
+              <span className="text-center font-black text-sm" style={{ color }}>{label}</span>
+              <span className="text-center font-bold" style={{ color: teamColor }}>{r.points}</span>
+              <span className="text-center text-xs" style={{ color: 'var(--f1-muted)' }}>{r.grid}</span>
+            </div>
+          )
+        })}
+      </div>
+
+      <p className="text-xs mt-3 text-right" style={{ color: 'var(--f1-muted)', opacity: 0.5 }}>
+        Fuente: Jolpi · Temporada 2026 · {results.length} carreras
+      </p>
+    </div>
+  )
+}
+
+// ─── Modal ────────────────────────────────────────────────────────────────────
+
+type ModalTab = 'perfil' | 'temporada'
+
 function DriverModal({ driver, onClose }: { driver: DriverProfile; onClose: () => void }) {
   const mainTeamColor = driver.teams[driver.teams.length - 1]?.color ?? '#fff'
+  const [tab, setTab] = useState<ModalTab>('perfil')
+
+  // Reset tab al cambiar de piloto
+  useEffect(() => { setTab('perfil') }, [driver.id])
 
   return (
     <div
@@ -241,7 +394,6 @@ function DriverModal({ driver, onClose }: { driver: DriverProfile; onClose: () =
 
         {/* Header */}
         <div className="flex gap-0 relative">
-          {/* Foto grande */}
           <div className="shrink-0 relative" style={{ width: 160, height: 200, background: 'rgba(255,255,255,0.04)' }}>
             <img
               src={`/drivers/${driver.id}.webp`}
@@ -262,7 +414,6 @@ function DriverModal({ driver, onClose }: { driver: DriverProfile; onClose: () =
             />
           </div>
 
-          {/* Datos principales */}
           <div className="flex-1 px-5 py-5">
             <div className="flex items-start justify-between gap-2 mb-3">
               <div>
@@ -279,11 +430,7 @@ function DriverModal({ driver, onClose }: { driver: DriverProfile; onClose: () =
             </div>
 
             <div className="flex items-center gap-2 mb-3">
-              <img
-                src={`https://flagcdn.com/w20/${driver.countryCode}.png`}
-                alt={driver.nationality}
-                className="w-5 h-3.5 object-cover rounded-sm"
-              />
+              <img src={`https://flagcdn.com/w20/${driver.countryCode}.png`} alt={driver.nationality} className="w-5 h-3.5 object-cover rounded-sm" />
               <span className="text-sm">{driver.nationality}</span>
               <StatusBadge status={driver.status} />
               {driver.number && (
@@ -304,33 +451,69 @@ function DriverModal({ driver, onClose }: { driver: DriverProfile; onClose: () =
           </div>
         </div>
 
-        {/* Stats */}
-        <div className="px-5 py-4" style={{ borderTop: '1px solid var(--f1-card-border)' }}>
-          <div className="grid grid-cols-5 gap-2">
-            <StatBox label="Títulos" value={driver.championships} color={driver.championships > 0 ? '#facc15' : undefined} />
-            <StatBox label="Victorias" value={driver.wins} color={mainTeamColor} />
-            <StatBox label="Podios" value={driver.podiums} />
-            <StatBox label="Poles" value={driver.poles} />
-            <StatBox label="V. Rápidas" value={driver.fastestLaps} />
+        {/* Tabs — solo si es activo */}
+        {driver.active && (
+          <div
+            className="flex px-5 gap-1"
+            style={{ borderTop: '1px solid var(--f1-card-border)', borderBottom: '1px solid var(--f1-card-border)' }}
+          >
+            {(['perfil', 'temporada'] as ModalTab[]).map(t => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className="px-4 py-3 text-xs font-bold uppercase tracking-wider transition-all duration-150 relative"
+                style={{ color: tab === t ? '#fff' : 'var(--f1-muted)' }}
+              >
+                {t === 'perfil' ? 'Perfil' : 'Temporada 2026'}
+                {tab === t && (
+                  <div
+                    className="absolute bottom-0 left-0 right-0 h-[2px] rounded-t"
+                    style={{ background: mainTeamColor }}
+                  />
+                )}
+              </button>
+            ))}
           </div>
-        </div>
+        )}
 
-        {/* Bio */}
-        <div className="px-5 pb-4" style={{ borderTop: '1px solid var(--f1-card-border)', paddingTop: 16 }}>
-          <p className="text-sm leading-relaxed" style={{ color: 'var(--f1-muted)' }}>{driver.bio}</p>
-        </div>
+        {/* Contenido por tab */}
+        {tab === 'perfil' || !driver.active ? (
+          <>
+            {/* Stats carrera */}
+            <div className="px-5 py-4" style={{ borderTop: driver.active ? 'none' : '1px solid var(--f1-card-border)' }}>
+              <div className="grid grid-cols-5 gap-2">
+                <StatBox label="Títulos" value={driver.championships} color={driver.championships > 0 ? '#facc15' : undefined} />
+                <StatBox label="Victorias" value={driver.wins} color={mainTeamColor} />
+                <StatBox label="Podios" value={driver.podiums} />
+                <StatBox label="Poles" value={driver.poles} />
+                <StatBox label="V. Rápidas" value={driver.fastestLaps} />
+              </div>
+            </div>
 
-        {/* Timeline escuderías */}
-        <div className="px-5 pb-5" style={{ borderTop: '1px solid var(--f1-card-border)', paddingTop: 16 }}>
-          <h3 className="text-xs font-bold uppercase tracking-widest mb-3" style={{ color: 'var(--f1-muted)' }}>
-            Escuderías
-          </h3>
-          <TeamTimeline teams={driver.teams} />
-        </div>
+            {/* Bio */}
+            <div className="px-5 pb-4" style={{ borderTop: '1px solid var(--f1-card-border)', paddingTop: 16 }}>
+              <p className="text-sm leading-relaxed" style={{ color: 'var(--f1-muted)' }}>{driver.bio}</p>
+            </div>
+
+            {/* Timeline escuderías */}
+            <div className="px-5 pb-5" style={{ borderTop: '1px solid var(--f1-card-border)', paddingTop: 16 }}>
+              <h3 className="text-xs font-bold uppercase tracking-widest mb-3" style={{ color: 'var(--f1-muted)' }}>
+                Escuderías
+              </h3>
+              <TeamTimeline teams={driver.teams} />
+            </div>
+          </>
+        ) : (
+          <div className="pt-4">
+            <SeasonTab driver={driver} teamColor={mainTeamColor} />
+          </div>
+        )}
       </div>
     </div>
   )
 }
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function PilotosPage() {
   const [selectedLetter, setSelectedLetter] = useState<string | null>(null)
@@ -380,7 +563,6 @@ export default function PilotosPage() {
         className="rounded-2xl px-5 py-4 mb-6"
         style={{ background: 'var(--f1-card-gradient)', border: '1px solid var(--f1-card-border)' }}
       >
-        {/* Letras */}
         <div className="mb-4">
           <div className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: 'var(--f1-muted)' }}>
             Apellido
@@ -409,25 +591,19 @@ export default function PilotosPage() {
           </div>
         </div>
 
-        {/* Fila de filtros */}
         <div className="flex flex-wrap gap-3 items-end">
-          {/* Nacionalidad */}
           <Dropdown
             label="Nacionalidad"
             value={selectedNationality ?? ''}
             options={[{ value: '', label: 'Todas' }, ...ALL_NATIONALITIES.map(n => ({ value: n, label: n }))]}
             onChange={v => setSelectedNationality(v || null)}
           />
-
-          {/* Escudería */}
           <Dropdown
             label="Escudería"
             value={selectedTeam ?? ''}
             options={[{ value: '', label: 'Todas' }, ...ALL_TEAMS.map(t => ({ value: t, label: t }))]}
             onChange={v => setSelectedTeam(v || null)}
           />
-
-          {/* Toggles */}
           <div className="flex gap-2">
             <button
               onClick={() => setOnlyChampions(v => !v)}
@@ -440,7 +616,6 @@ export default function PilotosPage() {
             >
               🏆 Campeones
             </button>
-
             <button
               onClick={() => setOnlyActive(v => !v)}
               className="px-3 py-2 rounded-lg text-sm font-bold transition-all duration-150"
@@ -452,7 +627,6 @@ export default function PilotosPage() {
             >
               ● Activos
             </button>
-
             {hasFilters && (
               <button
                 onClick={clearFilters}
