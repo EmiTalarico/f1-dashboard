@@ -236,8 +236,10 @@ function gpShortName(name: string) {
     .trim()
 }
 
-async function fetchDriverResults(driverId: string): Promise<RaceResult[]> {
-  const res = await fetch(`https://api.jolpi.ca/ergast/f1/2026/drivers/${driverId}/results/?format=json`)
+const CURRENT_YEAR = 2026
+
+async function fetchDriverResults(driverId: string, year: number): Promise<RaceResult[]> {
+  const res = await fetch(`https://api.jolpi.ca/ergast/f1/${year}/drivers/${driverId}/results/?format=json`)
   const data = await res.json()
   const races = data?.MRData?.RaceTable?.Races ?? []
   return races.map((r: any) => {
@@ -293,8 +295,8 @@ function RivalPicker({
   }, [])
 
   return (
-    <div className="flex items-center gap-2 mb-4">
-      <span className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--f1-muted)' }}>
+    <div className="flex items-center gap-2">
+      <span className="text-xs font-bold uppercase tracking-wider shrink-0" style={{ color: 'var(--f1-muted)' }}>
         Comparar con
       </span>
 
@@ -372,9 +374,89 @@ function RivalPicker({
   )
 }
 
+// ─── Selector de año ─────────────────────────────────────────────────────────
+
+function YearPicker({
+  year,
+  debutYear,
+  onChange,
+}: {
+  year: number
+  debutYear: number
+  onChange: (y: number) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const years = Array.from(
+    { length: CURRENT_YEAR - debutYear + 1 },
+    (_, i) => CURRENT_YEAR - i
+  )
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-black"
+        style={{
+          background: 'rgba(225,6,0,0.1)',
+          border: open ? '1px solid rgba(225,6,0,0.6)' : '1px solid rgba(225,6,0,0.3)',
+          color: 'var(--f1-red)',
+        }}
+      >
+        {year}
+        <span style={{ fontSize: 10, color: 'var(--f1-muted)' }}>{open ? '▲' : '▼'}</span>
+      </button>
+
+      {open && (
+        <div
+          className="absolute right-0 z-50 mt-1 rounded-xl"
+          style={{
+            background: '#1a1a1a',
+            border: '1px solid var(--f1-card-border)',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
+            maxHeight: 200,
+            overflowY: 'auto',
+            minWidth: '5rem',
+          }}
+        >
+          {years.map(y => {
+            const isSelected = y === year
+            return (
+              <button
+                key={y}
+                type="button"
+                onClick={() => { onChange(y); setOpen(false) }}
+                className="w-full text-left px-4 py-2 text-sm font-bold"
+                style={{
+                  background: isSelected ? 'rgba(225,6,0,0.15)' : 'transparent',
+                  color: isSelected ? 'var(--f1-red)' : 'var(--f1-muted)',
+                }}
+                onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.06)' }}
+                onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+              >
+                {y}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── SeasonTab ────────────────────────────────────────────────────────────────
 
 function SeasonTab({ driver, teamColor }: { driver: DriverProfile; teamColor: string }) {
+  const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR)
   const [results, setResults] = useState<RaceResult[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
@@ -391,30 +473,40 @@ function SeasonTab({ driver, teamColor }: { driver: DriverProfile; teamColor: st
   useEffect(() => {
     setLoading(true)
     setError(false)
-    fetchDriverResults(driver.id)
+    setResults(null)
+    fetchDriverResults(driver.id, selectedYear)
       .then(setResults)
       .catch(() => setError(true))
       .finally(() => setLoading(false))
-  }, [driver.id])
+  }, [driver.id, selectedYear])
 
-  // Fetch rival cuando cambia
+  // Fetch rival cuando cambia (solo en año actual)
   useEffect(() => {
     if (!rivalId) { setRivalResults(null); return }
     setRivalLoading(true)
     setRivalError(false)
-    fetchDriverResults(rivalId)
+    fetchDriverResults(rivalId, selectedYear)
       .then(setRivalResults)
       .catch(() => setRivalError(true))
       .finally(() => setRivalLoading(false))
-  }, [rivalId])
+  }, [rivalId, selectedYear])
 
-  // Reset rival al cambiar de piloto principal
-  useEffect(() => { setRivalId(null); setRivalResults(null) }, [driver.id])
+  // Reset rival y año al cambiar de piloto
+  useEffect(() => {
+    setSelectedYear(CURRENT_YEAR)
+    setRivalId(null)
+    setRivalResults(null)
+  }, [driver.id])
+
+  // Reset rival al cambiar de año
+  useEffect(() => {
+    setRivalId(null)
+    setRivalResults(null)
+  }, [selectedYear])
 
   const totals = useMemo(() => results ? calcTotals(results) : null, [results])
   const rivalTotals = useMemo(() => rivalResults ? calcTotals(rivalResults) : null, [rivalResults])
 
-  // Mapa round → resultado rival para lookup rápido
   const rivalMap = useMemo(() => {
     if (!rivalResults) return {}
     return Object.fromEntries(rivalResults.map(r => [r.round, r]))
@@ -422,245 +514,247 @@ function SeasonTab({ driver, teamColor }: { driver: DriverProfile; teamColor: st
 
   const comparing = !!rivalId && !!rivalResults && !rivalLoading
 
-  if (loading) return (
-    <div className="px-5 py-8 flex flex-col gap-3">
-      {[...Array(5)].map((_, i) => (
-        <div key={i} className="h-10 rounded-xl animate-pulse" style={{ background: 'rgba(255,255,255,0.05)' }} />
-      ))}
-    </div>
-  )
-
-  if (error) return (
-    <div className="px-5 py-10 text-center text-sm" style={{ color: 'var(--f1-muted)' }}>
-      No se pudieron cargar los resultados. Intentá de nuevo más tarde.
-    </div>
-  )
-
-  if (!results || results.length === 0) return (
-    <div className="px-5 py-10 text-center text-sm" style={{ color: 'var(--f1-muted)' }}>
-      Sin resultados disponibles para la temporada 2026.
-    </div>
-  )
-
   return (
     <div className="px-5 pb-5">
-      {/* Selector de rival */}
-      <RivalPicker
-        currentDriverId={driver.id}
-        rivalId={rivalId}
-        onSelect={setRivalId}
-        onClear={() => { setRivalId(null); setRivalResults(null) }}
-      />
 
-      {/* Resumen stats */}
-      {comparing && rivalTotals && totals ? (
-        // Vista comparativa: cabeceras + 4 stats lado a lado
-        <div className="mb-4">
-          {/* Mini cabeceras */}
-          <div className="grid grid-cols-2 gap-2 mb-1.5 text-xs font-bold text-center">
-            <div className="truncate px-1" style={{ color: teamColor }}>{driver.lastName.toUpperCase()}</div>
-            <div className="truncate px-1" style={{ color: rivalColor }}>{rivalDriver!.lastName.toUpperCase()}</div>
-          </div>
-          {/* 4 pares de stats */}
-          {[
-            { label: 'Puntos',    a: totals.pts,     b: rivalTotals.pts,     colorA: teamColor, colorB: rivalColor },
-            { label: 'Victorias', a: totals.wins,    b: rivalTotals.wins,    colorA: totals.wins > 0 ? '#facc15' : teamColor, colorB: rivalTotals.wins > 0 ? '#facc15' : rivalColor },
-            { label: 'Podios',    a: totals.podiums, b: rivalTotals.podiums, colorA: undefined, colorB: undefined },
-            { label: 'V. Rápidas', a: totals.fl,     b: rivalTotals.fl,      colorA: totals.fl > 0 ? '#a855f7' : undefined, colorB: rivalTotals.fl > 0 ? '#a855f7' : undefined },
-          ].map(({ label, a, b, colorA, colorB }) => (
-            <div key={label} className="grid grid-cols-2 gap-2 mb-2">
-              <div className="rounded-xl px-3 py-2 flex items-center justify-between" style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${a > b ? teamColor + '60' : 'var(--f1-card-border)'}` }}>
-                <span className="text-xs" style={{ color: 'var(--f1-muted)' }}>{label}</span>
-                <span className="text-base font-black" style={{ color: colorA ?? 'inherit' }}>{a}</span>
-              </div>
-              <div className="rounded-xl px-3 py-2 flex items-center justify-between" style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${b > a ? rivalColor + '60' : 'var(--f1-card-border)'}` }}>
-                <span className="text-xs" style={{ color: 'var(--f1-muted)' }}>{label}</span>
-                <span className="text-base font-black" style={{ color: colorB ?? 'inherit' }}>{b}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        // Vista individual
-        totals && (
-          <div className="grid grid-cols-4 gap-2 mb-4">
-            <StatBox label="Puntos" value={totals.pts} color={teamColor} />
-            <StatBox label="Victorias" value={totals.wins} color={totals.wins > 0 ? '#facc15' : undefined} />
-            <StatBox label="Podios" value={totals.podiums} />
-            <StatBox label="V. Rápidas" value={totals.fl} color={totals.fl > 0 ? '#a855f7' : undefined} />
-          </div>
-        )
-      )}
-
-      {/* Spinner rival cargando */}
-      {rivalId && rivalLoading && (
-        <div className="flex flex-col gap-2 mb-4">
-          {[...Array(3)].map((_, i) => (
-            <div key={i} className="h-8 rounded-lg animate-pulse" style={{ background: 'rgba(255,255,255,0.05)' }} />
-          ))}
-        </div>
-      )}
-
-      {rivalError && (
-        <div className="text-xs mb-3 text-center" style={{ color: '#f87171' }}>
-          No se pudieron cargar los resultados del rival.
-        </div>
-      )}
-
-      {/* Tabla */}
-      <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--f1-card-border)' }}>
-        {/* Header */}
-        {comparing ? (
-          <div
-            className="grid text-xs font-bold uppercase tracking-wider px-3 py-2 gap-2"
-            style={{
-              gridTemplateColumns: '2rem 1fr 1fr',
-              background: 'rgba(255,255,255,0.04)',
-              color: 'var(--f1-muted)',
-              borderBottom: '1px solid var(--f1-card-border)',
-            }}
-          >
-            <span>Rd</span>
-            <span style={{ color: teamColor }}>{driver.acronym}</span>
-            <span style={{ color: rivalColor }}>{rivalDriver!.acronym}</span>
-          </div>
-        ) : (
-          <div
-            className="grid text-xs font-bold uppercase tracking-wider px-3 py-2"
-            style={{
-              gridTemplateColumns: '2rem 1fr 2.5rem 3rem 2.5rem',
-              background: 'rgba(255,255,255,0.04)',
-              color: 'var(--f1-muted)',
-              borderBottom: '1px solid var(--f1-card-border)',
-            }}
-          >
-            <span>Rd</span>
-            <span>Gran Premio</span>
-            <span className="text-center">Pos</span>
-            <span className="text-center">Pts</span>
-            <span className="text-center">Sal</span>
-          </div>
-        )}
-
-        {/* Filas */}
-        {results.map((r, i) => {
-          const { label, color } = positionLabel(r.position, r.positionText)
-          const isFl = r.fastestLapRank === '1'
-          const isLast = i === results.length - 1
-          const rival = rivalMap[r.round]
-
-          if (comparing) {
-            const rLabel = rival ? positionLabel(rival.position, rival.positionText) : null
-            const rIsFl = rival?.fastestLapRank === '1'
-            // Quién ganó el duelo en esta carrera
-            const aPos = parseInt(r.position)
-            const bPos = rival ? parseInt(rival.position) : 99
-            const aWins = !isNaN(aPos) && !isNaN(bPos) && aPos < bPos
-            const bWins = !isNaN(aPos) && !isNaN(bPos) && bPos < aPos
-
-            return (
-              <div
-                key={r.round}
-                className="grid items-center px-3 py-2.5 text-sm gap-2"
-                style={{
-                  gridTemplateColumns: '2rem 1fr 1fr',
-                  borderBottom: isLast ? 'none' : '1px solid rgba(255,255,255,0.04)',
-                  background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)',
-                }}
-              >
-                {/* Ronda + nombre GP */}
-                <span className="text-xs" style={{ color: 'var(--f1-muted)' }}>{r.round}</span>
-
-                {/* Piloto A */}
-                <div
-                  className="flex items-center gap-1.5 px-2 py-1 rounded-lg"
-                  style={{
-                    background: aWins ? `${teamColor}12` : 'transparent',
-                    border: aWins ? `1px solid ${teamColor}30` : '1px solid transparent',
-                  }}
-                >
-                  <span className="font-black text-sm w-8 shrink-0" style={{ color }}>{label}</span>
-                  <span className="text-xs font-bold" style={{ color: teamColor }}>{r.points}p</span>
-                  {isFl && <span className="text-xs" style={{ color: '#a855f7' }} title="Vuelta rápida">⚡</span>}
-                </div>
-
-                {/* Piloto B */}
-                {rLabel ? (
-                  <div
-                    className="flex items-center gap-1.5 px-2 py-1 rounded-lg"
-                    style={{
-                      background: bWins ? `${rivalColor}12` : 'transparent',
-                      border: bWins ? `1px solid ${rivalColor}30` : '1px solid transparent',
-                    }}
-                  >
-                    <span className="font-black text-sm w-8 shrink-0" style={{ color: rLabel.color }}>{rLabel.label}</span>
-                    <span className="text-xs font-bold" style={{ color: rivalColor }}>{rival!.points}p</span>
-                    {rIsFl && <span className="text-xs" style={{ color: '#a855f7' }} title="Vuelta rápida">⚡</span>}
-                  </div>
-                ) : (
-                  <span className="text-xs px-2" style={{ color: 'var(--f1-muted)' }}>—</span>
-                )}
-              </div>
-            )
-          }
-
-          // Vista individual
-          return (
-            <div
-              key={r.round}
-              className="grid items-center px-3 py-2.5 text-sm"
-              style={{
-                gridTemplateColumns: '2rem 1fr 2.5rem 3rem 2.5rem',
-                borderBottom: isLast ? 'none' : '1px solid rgba(255,255,255,0.04)',
-                background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)',
-              }}
-            >
-              <span className="text-xs" style={{ color: 'var(--f1-muted)' }}>{r.round}</span>
-              <span className="truncate pr-2">
-                {gpShortName(r.raceName)}
-                {isFl && <span className="ml-1.5 text-xs font-bold" style={{ color: '#a855f7' }} title="Vuelta rápida">⚡</span>}
-              </span>
-              <span className="text-center font-black text-sm" style={{ color }}>{label}</span>
-              <span className="text-center font-bold" style={{ color: teamColor }}>{r.points}</span>
-              <span className="text-center text-xs" style={{ color: 'var(--f1-muted)' }}>{r.grid}</span>
-            </div>
-          )
-        })}
+      {/* Fila superior: selector año + comparador */}
+      <div className="flex items-center gap-3 mb-4">
+        <YearPicker
+          year={selectedYear}
+          debutYear={driver.debutYear}
+          onChange={setSelectedYear}
+        />
+        <RivalPicker
+          currentDriverId={driver.id}
+          rivalId={rivalId}
+          onSelect={setRivalId}
+          onClear={() => { setRivalId(null); setRivalResults(null) }}
+        />
       </div>
 
-      {/* Marcador final en modo comparación */}
-      {comparing && totals && rivalTotals && (() => {
-        const races = results.length
-        let aWins = 0, bWins = 0
-        results.forEach(r => {
-          const rv = rivalMap[r.round]
-          if (!rv) return
-          const aPos = parseInt(r.position)
-          const bPos = parseInt(rv.position)
-          if (!isNaN(aPos) && !isNaN(bPos)) {
-            if (aPos < bPos) aWins++
-            else if (bPos < aPos) bWins++
-          }
-        })
-        return (
-          <div
-            className="mt-3 rounded-xl px-4 py-3 flex items-center justify-between text-sm"
-            style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--f1-card-border)' }}
-          >
-            <span className="font-black" style={{ color: aWins >= bWins ? teamColor : 'var(--f1-muted)' }}>
-              {driver.acronym} {aWins}
-            </span>
-            <span className="text-xs" style={{ color: 'var(--f1-muted)' }}>duelos en {races} carreras</span>
-            <span className="font-black" style={{ color: bWins >= aWins ? rivalColor : 'var(--f1-muted)' }}>
-              {bWins} {rivalDriver!.acronym}
-            </span>
-          </div>
-        )
-      })()}
+      {/* Loading */}
+      {loading && (
+        <div className="flex flex-col gap-3">
+          {[...Array(5)].map((_, i) => (
+            <div key={i} className="h-10 rounded-xl animate-pulse" style={{ background: 'rgba(255,255,255,0.05)' }} />
+          ))}
+        </div>
+      )}
 
-      <p className="text-xs mt-3 text-right" style={{ color: 'var(--f1-muted)', opacity: 0.5 }}>
-        Fuente: Jolpi · Temporada 2026 · {results.length} carreras
-      </p>
+      {/* Error */}
+      {!loading && error && (
+        <div className="py-10 text-center text-sm" style={{ color: 'var(--f1-muted)' }}>
+          No se pudieron cargar los resultados. Intentá de nuevo más tarde.
+        </div>
+      )}
+
+      {/* Sin resultados */}
+      {!loading && !error && results && results.length === 0 && (
+        <div className="py-10 text-center text-sm" style={{ color: 'var(--f1-muted)' }}>
+          Sin resultados disponibles para {selectedYear}.
+        </div>
+      )}
+
+      {/* Contenido */}
+      {!loading && !error && results && results.length > 0 && (
+        <>
+          {/* Resumen stats */}
+          {comparing && rivalTotals && totals ? (
+            <div className="mb-4">
+              <div className="grid grid-cols-2 gap-2 mb-1.5 text-xs font-bold text-center">
+                <div className="truncate px-1" style={{ color: teamColor }}>{driver.lastName.toUpperCase()}</div>
+                <div className="truncate px-1" style={{ color: rivalColor }}>{rivalDriver!.lastName.toUpperCase()}</div>
+              </div>
+              {[
+                { label: 'Puntos',     a: totals.pts,     b: rivalTotals.pts,     colorA: teamColor,                                    colorB: rivalColor },
+                { label: 'Victorias',  a: totals.wins,    b: rivalTotals.wins,    colorA: totals.wins > 0 ? '#facc15' : teamColor,       colorB: rivalTotals.wins > 0 ? '#facc15' : rivalColor },
+                { label: 'Podios',     a: totals.podiums, b: rivalTotals.podiums, colorA: undefined,                                    colorB: undefined },
+                { label: 'V. Rápidas', a: totals.fl,      b: rivalTotals.fl,      colorA: totals.fl > 0 ? '#a855f7' : undefined,        colorB: rivalTotals.fl > 0 ? '#a855f7' : undefined },
+              ].map(({ label, a, b, colorA, colorB }) => (
+                <div key={label} className="grid grid-cols-2 gap-2 mb-2">
+                  <div className="rounded-xl px-3 py-2 flex items-center justify-between" style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${a > b ? teamColor + '60' : 'var(--f1-card-border)'}` }}>
+                    <span className="text-xs" style={{ color: 'var(--f1-muted)' }}>{label}</span>
+                    <span className="text-base font-black" style={{ color: colorA ?? 'inherit' }}>{a}</span>
+                  </div>
+                  <div className="rounded-xl px-3 py-2 flex items-center justify-between" style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${b > a ? rivalColor + '60' : 'var(--f1-card-border)'}` }}>
+                    <span className="text-xs" style={{ color: 'var(--f1-muted)' }}>{label}</span>
+                    <span className="text-base font-black" style={{ color: colorB ?? 'inherit' }}>{b}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            totals && (
+              <div className="grid grid-cols-4 gap-2 mb-4">
+                <StatBox label="Puntos" value={totals.pts} color={teamColor} />
+                <StatBox label="Victorias" value={totals.wins} color={totals.wins > 0 ? '#facc15' : undefined} />
+                <StatBox label="Podios" value={totals.podiums} />
+                <StatBox label="V. Rápidas" value={totals.fl} color={totals.fl > 0 ? '#a855f7' : undefined} />
+              </div>
+            )
+          )}
+
+          {/* Spinner rival */}
+          {rivalId && rivalLoading && (
+            <div className="flex flex-col gap-2 mb-4">
+              {[...Array(3)].map((_, i) => (
+                <div key={i} className="h-8 rounded-lg animate-pulse" style={{ background: 'rgba(255,255,255,0.05)' }} />
+              ))}
+            </div>
+          )}
+          {rivalError && (
+            <div className="text-xs mb-3 text-center" style={{ color: '#f87171' }}>
+              No se pudieron cargar los resultados del rival.
+            </div>
+          )}
+
+          {/* Tabla */}
+          <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--f1-card-border)' }}>
+            {comparing ? (
+              <div
+                className="grid text-xs font-bold uppercase tracking-wider px-3 py-2 gap-2"
+                style={{
+                  gridTemplateColumns: '2rem 1fr 1fr',
+                  background: 'rgba(255,255,255,0.04)',
+                  color: 'var(--f1-muted)',
+                  borderBottom: '1px solid var(--f1-card-border)',
+                }}
+              >
+                <span>Rd</span>
+                <span style={{ color: teamColor }}>{driver.acronym}</span>
+                <span style={{ color: rivalColor }}>{rivalDriver!.acronym}</span>
+              </div>
+            ) : (
+              <div
+                className="grid text-xs font-bold uppercase tracking-wider px-3 py-2"
+                style={{
+                  gridTemplateColumns: '2rem 1fr 2.5rem 3rem 2.5rem',
+                  background: 'rgba(255,255,255,0.04)',
+                  color: 'var(--f1-muted)',
+                  borderBottom: '1px solid var(--f1-card-border)',
+                }}
+              >
+                <span>Rd</span>
+                <span>Gran Premio</span>
+                <span className="text-center">Pos</span>
+                <span className="text-center">Pts</span>
+                <span className="text-center">Sal</span>
+              </div>
+            )}
+
+            {results.map((r, i) => {
+              const { label, color } = positionLabel(r.position, r.positionText)
+              const isFl = r.fastestLapRank === '1'
+              const isLast = i === results.length - 1
+              const rival = rivalMap[r.round]
+
+              if (comparing) {
+                const rLabel = rival ? positionLabel(rival.position, rival.positionText) : null
+                const rIsFl = rival?.fastestLapRank === '1'
+                const aPos = parseInt(r.position)
+                const bPos = rival ? parseInt(rival.position) : 99
+                const aWins = !isNaN(aPos) && !isNaN(bPos) && aPos < bPos
+                const bWins = !isNaN(aPos) && !isNaN(bPos) && bPos < aPos
+
+                return (
+                  <div
+                    key={r.round}
+                    className="grid items-center px-3 py-2.5 text-sm gap-2"
+                    style={{
+                      gridTemplateColumns: '2rem 1fr 1fr',
+                      borderBottom: isLast ? 'none' : '1px solid rgba(255,255,255,0.04)',
+                      background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)',
+                    }}
+                  >
+                    <span className="text-xs" style={{ color: 'var(--f1-muted)' }}>{r.round}</span>
+                    <div
+                      className="flex items-center gap-1.5 px-2 py-1 rounded-lg"
+                      style={{
+                        background: aWins ? `${teamColor}12` : 'transparent',
+                        border: aWins ? `1px solid ${teamColor}30` : '1px solid transparent',
+                      }}
+                    >
+                      <span className="font-black text-sm w-8 shrink-0" style={{ color }}>{label}</span>
+                      <span className="text-xs font-bold" style={{ color: teamColor }}>{r.points}p</span>
+                      {isFl && <span className="text-xs" style={{ color: '#a855f7' }} title="Vuelta rápida">⚡</span>}
+                    </div>
+                    {rLabel ? (
+                      <div
+                        className="flex items-center gap-1.5 px-2 py-1 rounded-lg"
+                        style={{
+                          background: bWins ? `${rivalColor}12` : 'transparent',
+                          border: bWins ? `1px solid ${rivalColor}30` : '1px solid transparent',
+                        }}
+                      >
+                        <span className="font-black text-sm w-8 shrink-0" style={{ color: rLabel.color }}>{rLabel.label}</span>
+                        <span className="text-xs font-bold" style={{ color: rivalColor }}>{rival!.points}p</span>
+                        {rIsFl && <span className="text-xs" style={{ color: '#a855f7' }} title="Vuelta rápida">⚡</span>}
+                      </div>
+                    ) : (
+                      <span className="text-xs px-2" style={{ color: 'var(--f1-muted)' }}>—</span>
+                    )}
+                  </div>
+                )
+              }
+
+              return (
+                <div
+                  key={r.round}
+                  className="grid items-center px-3 py-2.5 text-sm"
+                  style={{
+                    gridTemplateColumns: '2rem 1fr 2.5rem 3rem 2.5rem',
+                    borderBottom: isLast ? 'none' : '1px solid rgba(255,255,255,0.04)',
+                    background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)',
+                  }}
+                >
+                  <span className="text-xs" style={{ color: 'var(--f1-muted)' }}>{r.round}</span>
+                  <span className="truncate pr-2">
+                    {gpShortName(r.raceName)}
+                    {isFl && <span className="ml-1.5 text-xs font-bold" style={{ color: '#a855f7' }} title="Vuelta rápida">⚡</span>}
+                  </span>
+                  <span className="text-center font-black text-sm" style={{ color }}>{label}</span>
+                  <span className="text-center font-bold" style={{ color: teamColor }}>{r.points}</span>
+                  <span className="text-center text-xs" style={{ color: 'var(--f1-muted)' }}>{r.grid}</span>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Marcador duelos */}
+          {comparing && totals && rivalTotals && (() => {
+            const races = results.length
+            let aWins = 0, bWins = 0
+            results.forEach(r => {
+              const rv = rivalMap[r.round]
+              if (!rv) return
+              const aPos = parseInt(r.position)
+              const bPos = parseInt(rv.position)
+              if (!isNaN(aPos) && !isNaN(bPos)) {
+                if (aPos < bPos) aWins++
+                else if (bPos < aPos) bWins++
+              }
+            })
+            return (
+              <div
+                className="mt-3 rounded-xl px-4 py-3 flex items-center justify-between text-sm"
+                style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--f1-card-border)' }}
+              >
+                <span className="font-black" style={{ color: aWins >= bWins ? teamColor : 'var(--f1-muted)' }}>
+                  {driver.acronym} {aWins}
+                </span>
+                <span className="text-xs" style={{ color: 'var(--f1-muted)' }}>duelos en {races} carreras</span>
+                <span className="font-black" style={{ color: bWins >= aWins ? rivalColor : 'var(--f1-muted)' }}>
+                  {bWins} {rivalDriver!.acronym}
+                </span>
+              </div>
+            )
+          })()}
+
+          <p className="text-xs mt-3 text-right" style={{ color: 'var(--f1-muted)', opacity: 0.5 }}>
+            Fuente: Jolpi · {selectedYear} · {results.length} carreras
+          </p>
+        </>
+      )}
     </div>
   )
 }
@@ -759,7 +853,7 @@ function DriverModal({ driver, onClose }: { driver: DriverProfile; onClose: () =
                 className="px-4 py-3 text-xs font-bold uppercase tracking-wider transition-all duration-150 relative"
                 style={{ color: tab === t ? '#fff' : 'var(--f1-muted)' }}
               >
-                {t === 'perfil' ? 'Perfil' : 'Temporada 2026'}
+                {t === 'perfil' ? 'Perfil' : 'Temporadas'}
                 {tab === t && (
                   <div className="absolute bottom-0 left-0 right-0 h-[2px] rounded-t" style={{ background: mainTeamColor }} />
                 )}
