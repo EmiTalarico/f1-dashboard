@@ -10,9 +10,47 @@ logger = logging.getLogger(__name__)
 
 SAVE_INTERVAL = 10
 REDIS_KEY = "f1:live_state"
+REDIS_SESSIONS_INDEX = "f1:sessions"
+MAX_HISTORY_EVENTS = 80000  # ~40MB máx por sesión
 
-# Redis client — opcional, funciona sin Redis también
+# Tipos de sesión que grabamos (filtramos prácticas)
+RECORD_SESSION_TYPES = {"Qualifying", "Sprint Shootout", "Sprint Qualifying", "Sprint", "Race"}
+
+# Topics que grabamos para el replay (excluimos Heartbeat y TopThree)
+RECORD_TOPICS = {
+    "SessionInfo", "SessionData", "SessionStatus",
+    "TimingData", "TimingDataF1", "TimingAppData",
+    "TimingStats", "TrackStatus", "DriverList",
+    "WeatherData", "RaceControlMessages", "LapCount",
+    "ExtrapolatedClock",
+}
+
 _redis = None
+_recording = False          # True si estamos grabando esta sesión
+_current_session_key = None
+_http_session: aiohttp.ClientSession | None = None
+_position_owner: dict[str, str] = {}
+_driver_lap_count: dict[str, int] = {}
+_last_sector_log_at: float = 0
+_last_save_at: float = 0
+_SECTOR_LOG_INTERVAL = 15
+
+state = {
+    "connected": False,
+    "session": {},
+    "timing": {},
+    "tyres": {},
+    "weather": {},
+    "race_control": [],
+    "session_data": {},
+    "track_status": {},
+    "timing_stats": {},
+}
+
+listeners = []
+
+
+# ── Redis ──────────────────────────────────────────────────────────────────────
 
 async def init_redis():
     global _redis
@@ -29,29 +67,71 @@ async def init_redis():
         logger.warning(f"Redis no disponible: {e} — continuando sin persistencia")
         _redis = None
 
-state = {
-    "connected": False,
-    "session": {},
-    "timing": {},
-    "tyres": {},
-    "weather": {},
-    "race_control": [],
-    "session_data": {},
-    "track_status": {},
-    "timing_stats": {},
-}
 
-listeners = []
-_current_session_key = None
-_http_session: aiohttp.ClientSession | None = None
-_position_owner: dict[str, str] = {}
-_driver_lap_count: dict[str, int] = {}
-_last_sector_log_at: float = 0
-_last_save_at: float = 0
-_SECTOR_LOG_INTERVAL = 15
+# ── Grabación de historial ─────────────────────────────────────────────────────
+
+async def record_event(topic: str, data):
+    """Guarda un evento en la lista de historial de la sesión actual."""
+    global _recording
+    if not _redis or not _recording or not _current_session_key:
+        return
+    if topic not in RECORD_TOPICS:
+        return
+    try:
+        history_key = f"f1:history:{_current_session_key}"
+        # Verificar que no superamos el límite
+        count = await _redis.llen(history_key)
+        if count >= MAX_HISTORY_EVENTS:
+            return
+        event = json.dumps({
+            "ts": time.time(),
+            "topic": topic,
+            "data": data,
+        })
+        await _redis.rpush(history_key, event)
+        # TTL de 30 días para el historial
+        if count == 0:
+            await _redis.expire(history_key, 86400 * 30)
+    except Exception as e:
+        logger.warning(f"Error grabando evento: {e}")
 
 
-# ── Persistencia ──────────────────────────────────────────────────────────────
+async def start_recording(session_key: int, session_info: dict):
+    """Inicia la grabación de una nueva sesión."""
+    global _recording
+    if not _redis:
+        return
+
+    session_type = session_info.get("Name", "")
+    session_name = session_info.get("Name", "")
+    meeting_name = session_info.get("Meeting", {}).get("Name", "")
+    start_date = session_info.get("StartDate", "")
+
+    if session_type not in RECORD_SESSION_TYPES:
+        logger.info(f"Sesión '{session_type}' no se graba (es práctica)")
+        _recording = False
+        return
+
+    _recording = True
+    logger.info(f"🔴 Iniciando grabación: {meeting_name} — {session_name} (key: {session_key})")
+
+    # Registrar en el índice de sesiones
+    try:
+        session_meta = json.dumps({
+            "key": session_key,
+            "type": session_type,
+            "name": session_name,
+            "meeting": meeting_name,
+            "date": start_date,
+            "recorded_at": time.time(),
+        })
+        await _redis.hset(REDIS_SESSIONS_INDEX, str(session_key), session_meta)
+        await _redis.expire(REDIS_SESSIONS_INDEX, 86400 * 30)
+    except Exception as e:
+        logger.warning(f"Error registrando sesión en índice: {e}")
+
+
+# ── Persistencia estado actual ─────────────────────────────────────────────────
 
 async def save_state_async():
     global _last_save_at
@@ -72,13 +152,12 @@ async def save_state_async():
             "track_status": state["track_status"],
             "timing_stats": state["timing_stats"],
         }
-        await _redis.set(REDIS_KEY, json.dumps(data), ex=86400 * 7)  # expira en 7 días
+        await _redis.set(REDIS_KEY, json.dumps(data), ex=86400 * 7)
     except Exception as e:
         logger.warning(f"Error guardando en Redis: {e}")
 
 
 def save_state():
-    """Wrapper sync que lanza la corutina sin bloquear."""
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
@@ -106,7 +185,7 @@ async def load_state():
         logger.warning(f"Error cargando estado desde Redis: {e}")
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── Helpers timing ─────────────────────────────────────────────────────────────
 
 def _check_position_conflict(num: str, position: str):
     prev_owner = _position_owner.get(position)
@@ -143,7 +222,6 @@ def _reset_driver_sectors(number: str):
         sector = driver["Sectors"][s_key]
         if isinstance(sector, dict) and "Segments" in sector:
             sector["Segments"] = {}
-    logger.debug(f"🔄 Sectores reseteados para piloto #{number}")
 
 
 def _merge_sectors(prev_sectors: dict, new_sectors: dict) -> dict:
@@ -218,7 +296,6 @@ def _apply_timing_update(number: str, data: dict):
         state["timing"][number] = {}
     driver = state["timing"][number]
     if _detect_new_lap(number, data):
-        logger.debug(f"🔄 Nueva vuelta detectada para piloto #{number}")
         _reset_driver_sectors(number)
     if "Line" in data:
         pos = str(data["Line"])
@@ -304,6 +381,8 @@ async def fetch_static_stints(session_info: dict):
         logger.error(f"Error fetching stints estáticos: {e}")
 
 
+# ── Procesamiento de mensajes ──────────────────────────────────────────────────
+
 def process_message(topic: str, msg):
     global _current_session_key
     try:
@@ -316,6 +395,8 @@ def process_message(topic: str, msg):
                 logger.info(f"Nueva sesión detectada: {new_key}")
                 _current_session_key = new_key
                 reset_session_state()
+                # Iniciar grabación si corresponde
+                asyncio.ensure_future(start_recording(new_key, msg))
             state["session"] = msg
             notify_listeners("session", msg)
             save_state()
@@ -445,9 +526,74 @@ def process_message(topic: str, msg):
             state["session_data"]["Status"] = msg
             notify_listeners("session_data", state["session_data"])
 
+        # Grabar el evento en Redis si estamos grabando
+        if _recording and topic in RECORD_TOPICS:
+            asyncio.ensure_future(record_event(topic, msg))
+
     except Exception as e:
         logger.error(f"Error procesando {topic}: {e}")
 
+
+# ── Funciones de historial (llamadas desde main.py) ───────────────────────────
+
+async def get_sessions_index() -> list:
+    """Devuelve el índice de sesiones grabadas."""
+    if not _redis:
+        return []
+    try:
+        raw = await _redis.hgetall(REDIS_SESSIONS_INDEX)
+        sessions = []
+        for key, val in raw.items():
+            try:
+                sessions.append(json.loads(val))
+            except Exception:
+                pass
+        return sorted(sessions, key=lambda s: s.get("recorded_at", 0), reverse=True)
+    except Exception as e:
+        logger.error(f"Error leyendo índice de sesiones: {e}")
+        return []
+
+
+async def get_session_history(session_key: int) -> list:
+    """Devuelve todos los eventos grabados de una sesión."""
+    if not _redis:
+        return []
+    try:
+        history_key = f"f1:history:{session_key}"
+        raw_events = await _redis.lrange(history_key, 0, -1)
+        return [json.loads(e) for e in raw_events]
+    except Exception as e:
+        logger.error(f"Error leyendo historial: {e}")
+        return []
+
+
+async def delete_session_history(session_key: int):
+    """Borra el historial de una sesión de Redis."""
+    if not _redis:
+        return
+    try:
+        history_key = f"f1:history:{session_key}"
+        await _redis.delete(history_key)
+        await _redis.hdel(REDIS_SESSIONS_INDEX, str(session_key))
+        logger.info(f"Historial de sesión {session_key} eliminado")
+    except Exception as e:
+        logger.error(f"Error borrando historial: {e}")
+
+
+async def get_history_size(session_key: int) -> dict:
+    """Devuelve el tamaño del historial de una sesión."""
+    if not _redis:
+        return {"events": 0, "size_kb": 0}
+    try:
+        history_key = f"f1:history:{session_key}"
+        count = await _redis.llen(history_key)
+        # Estimación: ~500 bytes por evento
+        return {"events": count, "estimated_size_kb": round(count * 0.5)}
+    except Exception:
+        return {"events": 0, "estimated_size_kb": 0}
+
+
+# ── Cliente WebSocket F1 ───────────────────────────────────────────────────────
 
 async def start_live_client():
     global _http_session
