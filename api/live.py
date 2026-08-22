@@ -14,7 +14,7 @@ REDIS_SESSIONS_INDEX = "f1:sessions"
 MAX_HISTORY_EVENTS = 80000  # ~40MB máx por sesión
 
 # Tipos de sesión que grabamos (filtramos prácticas)
-RECORD_SESSION_TYPES = {"Qualifying", "Sprint Shootout", "Sprint Qualifying", "Sprint", "Race"}
+RECORD_SESSION_TYPES = {"Qualifying", "Race"}
 
 # Topics que grabamos para el replay (excluimos Heartbeat y TopThree)
 RECORD_TOPICS = {
@@ -108,7 +108,7 @@ async def start_recording(session_key: int, session_info: dict):
     start_date = session_info.get("StartDate", "")
 
     if session_type not in RECORD_SESSION_TYPES:
-        logger.info(f"Sesión '{session_type}' no se graba (es práctica)")
+        logger.info(f"Sesión '{session_type}' no se graba (no es qualy o carrera)")
         _recording = False
         return
 
