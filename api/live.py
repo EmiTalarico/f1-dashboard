@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 SAVE_INTERVAL = 10
 REDIS_KEY = "f1:live_state"
 REDIS_SESSIONS_INDEX = "f1:sessions"
-MAX_HISTORY_EVENTS = 80000  # ~40MB máx por sesión
+MAX_HISTORY_EVENTS = 150000  # ~23MB máx por sesión (dentro del límite Redis gratuito)
 
 # Tipos de sesión que grabamos (filtramos prácticas)
 RECORD_SESSION_TYPES = {"Qualifying", "Race"}

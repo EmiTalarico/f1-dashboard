@@ -63,6 +63,12 @@ const Icons: Record<string, ReactElement> = {
       <path d="M5.5 5.5a9 9 0 000 13M18.5 5.5a9 9 0 010 13"/>
     </svg>
   ),
+  replay: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M1 4v6h6"/>
+      <path d="M3.51 15a9 9 0 102.13-9.36L1 10"/>
+    </svg>
+  ),
 }
 
 const NAV_GROUPS = [
@@ -86,8 +92,9 @@ const NAV_GROUPS = [
     label: 'Datos',
     items: [
       { href: '/clasificacion', label: 'Clasificación', icon: 'clasificacion' },
-      { href: '/telemetria',    label: 'Telemetría',    icon: 'telemetria' },
-      { href: '/live',          label: 'Live',          icon: 'live'       },
+      { href: '/telemetria',    label: 'Telemetría',    icon: 'telemetria'    },
+      { href: '/live',          label: 'Live',          icon: 'live'          },
+      //{ href: '/replay',        label: 'Replay',        icon: 'replay'        },
     ],
   },
 ]
