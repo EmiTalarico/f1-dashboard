@@ -132,7 +132,7 @@ async def start_recording(session_key: int, session_info: dict):
 
 
 # ── Persistencia estado actual ─────────────────────────────────────────────────
-
+# Verificar xq no persiste
 async def save_state_async():
     global _last_save_at
     now = time.time()

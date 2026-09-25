@@ -21,18 +21,18 @@ const PODIUM_CLASS: Record<string, string> = {
   '3': 'f1-badge-bronze',
 }
 
-// Standings Austria 2026 — Round 8
+// Standings Hungría 2026 — Round 11
 const FALLBACK_CONSTRUCTORS = [
-  { position: '1',  name: 'Mercedes',        nationality: 'German',   points: '379', wins: '8' },
-  { position: '2',  name: 'Ferrari',         nationality: 'Italian',  points: '307', wins: '2' },
-  { position: '3',  name: 'McLaren',         nationality: 'British',  points: '220', wins: '1' },
-  { position: '4',  name: 'Red Bull Racing', nationality: 'Austrian', points: '177', wins: '0' },
-  { position: '6',  name: 'Racing Bulls',    nationality: 'Italian',  points: '66',  wins: '0' },
-  { position: '5',  name: 'Alpine',          nationality: 'French',   points: '61',  wins: '0' },
+  { position: '1',  name: 'Mercedes',        nationality: 'German',   points: '503', wins: '8' },
+  { position: '2',  name: 'Ferrari',         nationality: 'Italian',  points: '358', wins: '2' },
+  { position: '3',  name: 'McLaren',         nationality: 'British',  points: '306', wins: '1' },
+  { position: '4',  name: 'Red Bull Racing', nationality: 'Austrian', points: '230', wins: '0' },
+  { position: '6',  name: 'Racing Bulls',    nationality: 'Italian',  points: '77',  wins: '0' },
+  { position: '5',  name: 'Alpine',          nationality: 'French',   points: '68',  wins: '0' },
   { position: '7',  name: 'Haas',            nationality: 'American', points: '21',  wins: '0' },
-  { position: '9',  name: 'Audi',            nationality: 'German',   points: '12',  wins: '0' },
+  { position: '9',  name: 'Audi',            nationality: 'German',   points: '17',  wins: '0' },
   { position: '8',  name: 'Williams',        nationality: 'British',  points: '11',  wins: '0' },
-  { position: '10', name: 'Aston Martin',    nationality: 'British',  points: '1',   wins: '0' },
+  { position: '10', name: 'Aston Martin',    nationality: 'British',  points: '3',   wins: '0' },
   { position: '11', name: 'Cadillac',        nationality: 'American', points: '0',   wins: '0' },
 ]
 
