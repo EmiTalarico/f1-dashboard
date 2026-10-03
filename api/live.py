@@ -30,7 +30,6 @@ _recording = False          # True si estamos grabando esta sesión
 _current_session_key = None
 _http_session: aiohttp.ClientSession | None = None
 _position_owner: dict[str, str] = {}
-_driver_lap_count: dict[str, int] = {}
 _last_sector_log_at: float = 0
 _last_save_at: float = 0
 _SECTOR_LOG_INTERVAL = 15
@@ -214,89 +213,75 @@ def _log_sector_sample():
     logger.info(f"🧭 SECTORS líder #{leader_num}: {summary}")
 
 
-def _reset_driver_sectors(number: str):
-    driver = state["timing"].get(number)
-    if not driver or "Sectors" not in driver:
-        return
-    for s_key in driver["Sectors"]:
-        sector = driver["Sectors"][s_key]
-        if isinstance(sector, dict) and "Segments" in sector:
-            sector["Segments"] = {}
+def _normalize_segments(raw) -> dict:
+    """El feed manda los segmentos como dict (deltas) o como lista (snapshot inicial)."""
+    if isinstance(raw, list):
+        return {str(i): v for i, v in enumerate(raw) if isinstance(v, dict)}
+    if isinstance(raw, dict):
+        return raw
+    return {}
+
+
+def _normalize_sectors(raw) -> dict:
+    """Sectors también llega como lista en el snapshot inicial."""
+    if isinstance(raw, list):
+        return {str(i): v for i, v in enumerate(raw)}
+    if isinstance(raw, dict):
+        return raw
+    return {}
+
+
+def _is_sector_reset(segments: dict) -> bool:
+    """Reset de vuelta nueva: el feed manda varios segmentos del sector en Status 0.
+
+    En el S1 el primer segmento ya puede venir pintado (el auto acaba de cruzar la
+    línea), así que el segmento "0" se excluye de la condición.
+    """
+    if len(segments) < 2:
+        return False
+    return all(
+        isinstance(v, dict) and (k == "0" or v.get("Status", 0) == 0)
+        for k, v in segments.items()
+    )
+
+
+_SECTOR_TRANSIENT_KEYS = ("Value", "PreviousValue", "OverallFastest", "PersonalFastest")
 
 
 def _merge_sectors(prev_sectors: dict, new_sectors: dict) -> dict:
+    """Aplica el delta del feed tal cual llega (sin heurísticas propias).
+
+    El feed ya señaliza la vuelta nueva con un mensaje que pone todos los
+    segmentos de cada sector en Status 0; ese 0 SÍ tiene que pisar el color.
+    """
     merged = dict(prev_sectors)
     for s_key, new_sector in new_sectors.items():
         if not isinstance(new_sector, dict):
             merged[s_key] = new_sector
             continue
-        prev_sector = merged.get(s_key, {})
+        prev_sector = merged.get(s_key)
         if not isinstance(prev_sector, dict):
-            merged[s_key] = new_sector
-            continue
-        merged_sector = {
-            **prev_sector,
-            **{k: v for k, v in new_sector.items() if k != "Segments"}
-        }
-        if "Segments" in new_sector and isinstance(new_sector["Segments"], dict):
-            prev_segs = prev_sector.get("Segments", {})
+            prev_sector = {}
+        updated = {**prev_sector, **{k: v for k, v in new_sector.items() if k != "Segments"}}
+        if "Segments" in new_sector:
+            incoming = _normalize_segments(new_sector["Segments"])
+            if _is_sector_reset(incoming) and "Value" not in new_sector:
+                # Vuelta nueva: el tiempo del sector de la vuelta anterior ya no vale
+                for k in _SECTOR_TRANSIENT_KEYS:
+                    updated.pop(k, None)
+            prev_segs = prev_sector.get("Segments")
             if not isinstance(prev_segs, dict):
                 prev_segs = {}
-            merged_segs = dict(prev_segs)
-            for seg_key, seg_val in new_sector["Segments"].items():
-                if not isinstance(seg_val, dict):
-                    merged_segs[seg_key] = seg_val
-                    continue
-                new_status = seg_val.get("Status", 0)
-                prev_status = prev_segs.get(seg_key, {}).get("Status", 0) if isinstance(prev_segs.get(seg_key), dict) else 0
-                if new_status == 0 and prev_status != 0:
-                    continue
-                merged_segs[seg_key] = seg_val
-            merged_sector["Segments"] = merged_segs
-        elif "Segments" in prev_sector:
-            merged_sector["Segments"] = prev_sector["Segments"]
-        merged[s_key] = merged_sector
+            updated["Segments"] = {**prev_segs, **incoming}
+        merged[s_key] = updated
     return merged
 
-
-def _detect_new_lap(number: str, data: dict) -> bool:
-    if "NumberOfLaps" in data:
-        new_laps = data["NumberOfLaps"]
-        if isinstance(new_laps, (int, float)):
-            prev_laps = _driver_lap_count.get(number, 0)
-            if new_laps > prev_laps:
-                _driver_lap_count[number] = int(new_laps)
-                return True
-            _driver_lap_count[number] = int(new_laps)
-
-    if "Sectors" in data and isinstance(data["Sectors"], dict):
-        new_s0 = data["Sectors"].get("0")
-        if isinstance(new_s0, dict) and "Segments" in new_s0:
-            new_segs = new_s0["Segments"]
-            if isinstance(new_segs, dict) and len(new_segs) >= 4:
-                all_zero = all(
-                    (v.get("Status", 0) == 0 if isinstance(v, dict) else True)
-                    for v in new_segs.values()
-                )
-                if all_zero:
-                    prev_driver = state["timing"].get(number, {})
-                    prev_s0 = prev_driver.get("Sectors", {}).get("0", {})
-                    prev_segs = prev_s0.get("Segments", {}) if isinstance(prev_s0, dict) else {}
-                    had_color = any(
-                        (v.get("Status", 0) not in (0,) if isinstance(v, dict) else False)
-                        for v in prev_segs.values()
-                    )
-                    if had_color:
-                        return True
-    return False
 
 
 def _apply_timing_update(number: str, data: dict):
     if number not in state["timing"]:
         state["timing"][number] = {}
     driver = state["timing"][number]
-    if _detect_new_lap(number, data):
-        _reset_driver_sectors(number)
     if "Line" in data:
         pos = str(data["Line"])
         _check_position_conflict(number, pos)
@@ -308,11 +293,11 @@ def _apply_timing_update(number: str, data: dict):
     for k, v in data.items():
         if v is None or k in ("Line", "Position"):
             continue
-        if k == "Sectors" and isinstance(v, dict):
+        if k == "Sectors" and isinstance(v, (dict, list)):
             prev_sectors = driver.get("Sectors", {})
             if not isinstance(prev_sectors, dict):
                 prev_sectors = {}
-            driver["Sectors"] = _merge_sectors(prev_sectors, v)
+            driver["Sectors"] = _merge_sectors(prev_sectors, _normalize_sectors(v))
         else:
             driver[k] = v
 
@@ -337,7 +322,6 @@ def reset_session_state():
     state["track_status"] = {}
     state["timing_stats"] = {}
     _position_owner.clear()
-    _driver_lap_count.clear()
     logger.info("Estado de sesión reseteado")
 
 

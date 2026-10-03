@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { F1_DRIVERS } from '../data/f1drivers'
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -245,7 +245,14 @@ function applyEvent(state: ReplayState, topic: string, data: any, eventTs?: numb
       return { ...state, session_data: { ...state.session_data, Status: data } }
 
     case 'LapCount':
-      return { ...state, session_data: { ...state.session_data, LapCount: data } }
+      // TotalLaps solo viene en el primer evento; los siguientes traen solo CurrentLap.
+      return {
+        ...state,
+        session_data: {
+          ...state.session_data,
+          LapCount: { ...(state.session_data?.LapCount ?? {}), ...data },
+        },
+      }
 
     case 'ExtrapolatedClock':
       return {
@@ -660,6 +667,18 @@ export default function ReplayPage() {
   )
   const qualifyingPart = replayState.session_data?.QualifyingPart as number | undefined
   const qualifyingLabel = qualifyingPart ? `Q${qualifyingPart}` : sessionName
+
+  // Carrera: se muestran vueltas. Qualy/otras: tiempo restante de la sesión.
+  const sessionType = String(replayState.session?.Type ?? file?.session?.type ?? '')
+  const isRace = sessionType === 'Race' || sessionType === 'Sprint'
+  const lapCount = replayState.session_data?.LapCount as { CurrentLap?: number; TotalLaps?: number } | undefined
+  const currentLap = lapCount?.CurrentLap
+  // TotalLaps solo viene en el primer evento: se toma del archivo para no perderlo al hacer seek
+  const totalLaps = useMemo(() => {
+    if (lapCount?.TotalLaps) return lapCount.TotalLaps
+    const ev = file?.events.find(e => e.topic === 'LapCount' && (e.data as any)?.TotalLaps)
+    return ev ? ((ev.data as any).TotalLaps as number) : undefined
+  }, [lapCount?.TotalLaps, file])
   const eventsApplied = eventIdx
   const totalEvents = file?.total_events ?? 0
 
@@ -1055,19 +1074,33 @@ export default function ReplayPage() {
               {/* Reloj oficial de clasificación */}
               <div className="rounded-2xl px-5 py-4" style={CARD}>
                 <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--f1-muted)' }}>Tiempo oficial</h3>
+                  <h3 className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--f1-muted)' }}>{isRace ? 'Vueltas' : 'Tiempo oficial'}</h3>
                   {qualifyingLabel && (
                     <span className="text-xs font-black px-2 py-1 rounded-md" style={{ background: 'rgba(225,6,0,0.12)', color: '#e10600' }}>
                       {qualifyingLabel}
                     </span>
                   )}
                 </div>
-                <div className="text-3xl font-black font-mono" style={{ color: '#e10600' }}>
-                  {officialRemaining !== null ? formatTime(officialRemaining) : '—'}
-                </div>
-                <div className="text-xs mt-1" style={{ color: 'var(--f1-muted)' }}>
-                  {officialRemaining !== null ? 'restantes en la sesión' : 'esperando reloj oficial'}
-                </div>
+                {isRace ? (
+                  <>
+                    <div className="text-3xl font-black font-mono" style={{ color: '#e10600' }}>
+                      {currentLap !== undefined ? currentLap : '—'}
+                      {totalLaps ? <span className="text-xl" style={{ color: 'var(--f1-muted)' }}> / {totalLaps}</span> : null}
+                    </div>
+                    <div className="text-xs mt-1" style={{ color: 'var(--f1-muted)' }}>
+                      {currentLap !== undefined ? 'vuelta actual' : 'esperando inicio de carrera'}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-3xl font-black font-mono" style={{ color: '#e10600' }}>
+                      {officialRemaining !== null ? formatTime(officialRemaining) : '—'}
+                    </div>
+                    <div className="text-xs mt-1" style={{ color: 'var(--f1-muted)' }}>
+                      {officialRemaining !== null ? 'restantes en la sesión' : 'esperando reloj oficial'}
+                    </div>
+                  </>
+                )}
                 <div className="mt-3 h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
                   <div className="h-full rounded-full transition-all" style={{ width: `${progress}%`, background: '#e10600' }} />
                 </div>

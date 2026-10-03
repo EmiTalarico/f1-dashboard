@@ -232,27 +232,11 @@ function mergeTiming(prev: LiveState['timing'], next: LiveState['timing']): Live
   for (const [num, data] of Object.entries(next)) {
     if (!merged[num]) { merged[num] = { ...data }; continue }
     const prevDriver = merged[num]
-    const newDriver = { ...prevDriver, ...data }
-    if (data.Sectors) {
-      newDriver.Sectors = { ...prevDriver.Sectors }
-      for (const [sKey, sector] of Object.entries(data.Sectors)) {
-        const prevSector = prevDriver.Sectors?.[sKey] ?? {}
-        if (sector.Segments) {
-          const prevSegs = prevSector.Segments ?? {}
-          const mergedSegs: { [k: string]: { Status: number } } = { ...prevSegs }
-          for (const [segKey, segVal] of Object.entries(sector.Segments)) {
-            const prevStatus = prevSegs[segKey]?.Status ?? 0
-            // Status 0 no sobreescribe un color ya pintado
-            if (segVal.Status === 0 && prevStatus !== 0) continue
-            mergedSegs[segKey] = segVal
-          }
-          newDriver.Sectors[sKey] = { ...prevSector, ...sector, Segments: mergedSegs }
-        } else {
-          newDriver.Sectors[sKey] = { ...prevSector, ...sector }
-        }
-      }
-    }
-    merged[num] = newDriver
+    // El backend ya hace el merge de sectores y manda el estado completo de cada
+    // piloto. Hay que reemplazar los sectores, no unirlos con los anteriores:
+    // si no, el reset de vuelta nueva (segmentos en 0, sin Value) no se propaga
+    // y quedan pintados los colores y tiempos de la vuelta anterior.
+    merged[num] = { ...prevDriver, ...data }
   }
   return merged
 }
