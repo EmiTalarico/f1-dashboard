@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { buildPitStops, pitStateAt, pitDuration } from './pitStops'
 import { F1_DRIVERS } from '../data/f1drivers'
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -661,9 +662,10 @@ export default function ReplayPage() {
   const sessionName = replayState.session?.Name ?? file?.session?.name ?? ''
   const meetingName = replayState.session?.Meeting?.Name ?? file?.session?.meeting ?? ''
   const progress = duration > 0 ? (currentTs / duration) * 100 : 0
+  const nowAbs = tsStartRef.current + currentTs
   const officialRemaining = getOfficialRemaining(
     replayState.session_data,
-    tsStartRef.current + currentTs,
+    nowAbs,
   )
   const qualifyingPart = replayState.session_data?.QualifyingPart as number | undefined
   const qualifyingLabel = qualifyingPart ? `Q${qualifyingPart}` : sessionName
@@ -676,22 +678,28 @@ export default function ReplayPage() {
   // TotalLaps solo viene en el primer evento: se toma del archivo para no perderlo al hacer seek
   const totalLaps = useMemo(() => {
     if (lapCount?.TotalLaps) return lapCount.TotalLaps
-    const ev = file?.events.find(e => e.topic === 'LapCount' && (e.data as any)?.TotalLaps)
-    return ev ? ((ev.data as any).TotalLaps as number) : undefined
+    const ev = file?.events.find(e => e.topic === 'LapCount' && e.data?.TotalLaps)
+    return ev ? (ev.data.TotalLaps as number) : undefined
   }, [lapCount?.TotalLaps, file])
+
+  // Boxes (solo carrera): se reconstruyen una vez desde el archivo y se filtran por el instante del replay.
+  // En qualy NumberOfPitStops cuenta idas al garaje, no paradas, por eso no se usa.
+  const pitStopsByDriver = useMemo(
+    () => (isRace && file ? buildPitStops(file.events) : {}),
+    [isRace, file],
+  )
+  const boxesRanking = isRace
+    ? Object.entries(pitStopsByDriver)
+        .flatMap(([num, ss]) =>
+          ss.filter(s => s.outTs !== null && s.outTs <= nowAbs).map(s => ({ num, stop: s, dur: (s.outTs as number) - s.inTs })))
+        .sort((a, b) => a.dur - b.dur)
+    : []
   const eventsApplied = eventIdx
   const totalEvents = file?.total_events ?? 0
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <>
-      <style jsx global>{`
-        @keyframes favoritePositionFlash {
-          0% { background: rgba(255,215,0,0.28); box-shadow: inset 0 0 0 1px rgba(255,215,0,0.45), 0 0 22px rgba(255,215,0,0.16); }
-          45% { background: rgba(255,215,0,0.12); box-shadow: inset 0 0 0 1px rgba(255,215,0,0.30), 0 0 14px rgba(255,215,0,0.10); }
-          100% { background: transparent; box-shadow: none; }
-        }
-      `}</style>
       <main className="min-h-screen px-4 py-8 max-w-7xl mx-auto">
 
       {/* Header */}
@@ -879,6 +887,8 @@ export default function ReplayPage() {
                     const sectors = data.Sectors ?? {}
                     const lapColor = data.LastLapTime?.OverallFastest ? '#a855f7' : data.LastLapTime?.PersonalFastest ? '#22c55e' : 'inherit'
                     const isRetired = data.Retired
+                    const pitInfo = isRace ? pitStateAt(pitStopsByDriver[num], nowAbs) : { active: null, completed: [] }
+                    const activeStop = !isRetired ? pitInfo.active : null
                     const statusLabel = isRetired ? 'RET' : data.InPit ? 'PIT' : data.PitOut ? 'OUT' : null
                     const statusColor = isRetired ? '#f87171' : data.InPit ? '#ffd700' : '#22c55e'
                     const gap = pos === 1 ? 'LÍDER' : (data.GapToLeader ?? '—')
@@ -921,7 +931,11 @@ export default function ReplayPage() {
                                 </span>
                               )}
                             </div>
-                            <div className="text-xs truncate" style={{ color: 'var(--f1-muted)' }}>{team}</div>
+                            {activeStop ? (
+                              <div className="text-xs font-mono font-bold truncate" style={{ color: '#ffd700' }}>{pitDuration(activeStop, nowAbs).toFixed(1)}s</div>
+                            ) : (
+                              <div className="text-xs truncate" style={{ color: 'var(--f1-muted)' }}>{team}</div>
+                            )}
                           </div>
 
                           <div className="flex items-center gap-1.5">
@@ -1029,6 +1043,37 @@ export default function ReplayPage() {
                                 </div>
                               )}
                             </div>
+
+                            {/* Paradas en boxes (solo carrera) */}
+                            {isRace && (pitStopsByDriver[num]?.length ?? 0) > 0 && (
+                              <div style={{ gridColumn: '1 / -1' }}>
+                                <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: 'var(--f1-muted)' }}>Paradas en boxes</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {pitStopsByDriver[num].filter(st => st.inTs <= nowAbs).map(st => {
+                                    const inProgress = st === activeStop
+                                    const abandoned = st.outTs === null && isRetired
+                                    const done = st.outTs !== null && st.outTs <= nowAbs
+                                    return (
+                                      <div key={st.stop} className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                                        <span className="font-black" style={{ color: teamColor }}>#{st.stop}</span>
+                                        <span style={{ color: 'var(--f1-muted)' }}>V{st.lap}</span>
+                                        <span className="font-mono font-bold" style={{ color: inProgress ? '#ffd700' : abandoned ? '#f87171' : 'inherit' }}>
+                                          {abandoned ? 'Abandono' : `${pitDuration(st, nowAbs).toFixed(1)}s${inProgress ? '…' : ''}`}
+                                        </span>
+                                        {done && st.from && st.to && (
+                                          <span className="flex items-center gap-1">
+                                            <span className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-black" style={{ background: TYRE_COLORS[st.from] ?? '#666', color: st.from === 'HARD' || st.from === 'MEDIUM' ? '#000' : '#fff' }}>{TYRE_LABELS[st.from] ?? '?'}</span>
+                                            <span style={{ color: 'var(--f1-muted)' }}>→</span>
+                                            <span className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-black" style={{ background: TYRE_COLORS[st.to] ?? '#666', color: st.to === 'HARD' || st.to === 'MEDIUM' ? '#000' : '#fff' }}>{TYRE_LABELS[st.to] ?? '?'}</span>
+                                          </span>
+                                        )}
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                                <p className="text-[10px] mt-2" style={{ color: 'var(--f1-muted)' }}>Tiempo total en pit lane (entrada → salida), no el tiempo detenido.</p>
+                              </div>
+                            )}
                           </div>
                         )}
 
@@ -1108,6 +1153,29 @@ export default function ReplayPage() {
                   Replay {formatTime(currentTs)} / {formatTime(duration)}
                 </div>
               </div>
+
+              {/* Boxes: paradas más rápidas (solo carrera) */}
+              {isRace && boxesRanking.length > 0 && (
+                <div className="rounded-2xl px-5 py-4" style={CARD}>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--f1-muted)' }}>Boxes</h3>
+                    <span className="text-[10px]" style={{ color: 'var(--f1-muted)' }}>{boxesRanking.length} paradas</span>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    {boxesRanking.slice(0, 5).map(({ num, stop, dur }, i) => (
+                      <div key={`${num}-${stop.stop}`} className="flex items-center justify-between text-xs">
+                        <span className="flex items-center gap-2">
+                          <span className="font-black w-4" style={{ color: i === 0 ? '#a855f7' : 'var(--f1-muted)' }}>{i + 1}</span>
+                          <span className="font-bold">{F1_DRIVERS[num]?.acronym ?? replayState.timing[num]?.Tla ?? num}</span>
+                          <span style={{ color: 'var(--f1-muted)' }}>V{stop.lap}</span>
+                        </span>
+                        <span className="font-mono font-bold" style={{ color: i === 0 ? '#a855f7' : 'inherit' }}>{dur.toFixed(1)}s</span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[10px] mt-3" style={{ color: 'var(--f1-muted)' }}>Tiempo en pit lane, no tiempo detenido.</p>
+                </div>
+              )}
 
               {/* Condiciones */}
               {weather && Object.keys(weather).length > 0 && (
