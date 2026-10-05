@@ -33,6 +33,8 @@ _position_owner: dict[str, str] = {}
 _last_sector_log_at: float = 0
 _last_save_at: float = 0
 _SECTOR_LOG_INTERVAL = 15
+_pit_open: dict[str, dict] = {}     # piloto -> entrada a pit lane en curso
+_pit_laps: dict[str, int] = {}      # piloto -> vueltas completadas
 
 state = {
     "connected": False,
@@ -44,6 +46,7 @@ state = {
     "session_data": {},
     "track_status": {},
     "timing_stats": {},
+    "pit_stops": {},
 }
 
 listeners = []
@@ -150,6 +153,7 @@ async def save_state_async():
             "session_data": state["session_data"],
             "track_status": state["track_status"],
             "timing_stats": state["timing_stats"],
+            "pit_stops": state["pit_stops"],
         }
         await _redis.set(REDIS_KEY, json.dumps(data), ex=86400 * 7)
     except Exception as e:
@@ -176,7 +180,7 @@ async def load_state():
             return
         data = json.loads(raw)
         for key in ("session", "timing", "tyres", "weather", "race_control",
-                    "session_data", "track_status", "timing_stats"):
+                    "session_data", "track_status", "timing_stats", "pit_stops"):
             if key in data:
                 state[key] = data[key]
         logger.info(f"✅ Estado previo cargado desde Redis — {len(state['timing'])} pilotos, sesión: {state['session'].get('Name', 'desconocida')}")
@@ -278,7 +282,57 @@ def _merge_sectors(prev_sectors: dict, new_sectors: dict) -> dict:
 
 
 
-def _apply_timing_update(number: str, data: dict):
+def _is_race_session() -> bool:
+    """Las paradas solo tienen sentido en carrera/sprint: en qualy NumberOfPitStops cuenta idas al garaje."""
+    sess = state.get("session") or {}
+    return sess.get("Type") == "Race" or sess.get("Name") in ("Race", "Sprint")
+
+
+def _track_pit(number: str, data: dict, ts: float) -> bool:
+    """Reconstruye las paradas en boxes a partir del feed (mismo criterio que el replay).
+
+    InPit True  -> entra al pit lane
+    NumberOfPitStops -> confirma que es una parada real (las entradas pre-carrera no lo traen)
+    InPit False -> sale del pit lane
+    Se publica la parada apenas se confirma (outTs=None mientras sigue en boxes) para poder
+    mostrar el cronómetro en vivo. Devuelve True si cambió algo.
+    El tiempo medido es el del pit lane completo, no el tiempo detenido.
+    """
+    if not _is_race_session():
+        return False
+    changed = False
+    laps = data.get("NumberOfLaps")
+    if isinstance(laps, (int, float)):
+        _pit_laps[number] = int(laps)
+
+    if data.get("InPit") is True and number not in _pit_open:
+        _pit_open[number] = {"inTs": ts, "lap": _pit_laps.get(number, 0) + 1}
+
+    n = data.get("NumberOfPitStops")
+    open_stop = _pit_open.get(number)
+    if isinstance(n, int) and open_stop is not None and "entry" not in open_stop:
+        entry = {"stop": n, "inTs": open_stop["inTs"], "outTs": None, "lap": open_stop["lap"]}
+        open_stop["entry"] = entry
+        state["pit_stops"].setdefault(number, []).append(entry)
+        changed = True
+
+    if data.get("InPit") is False:
+        if open_stop is not None:
+            entry = open_stop.get("entry")
+            if entry is not None and entry["outTs"] is None:
+                entry["outTs"] = ts
+                changed = True
+            del _pit_open[number]
+        else:
+            # Reinicio del backend en medio de una parada: cerrar la que quedó abierta
+            stops = state["pit_stops"].get(number)
+            if stops and stops[-1]["outTs"] is None:
+                stops[-1]["outTs"] = ts
+                changed = True
+    return changed
+
+
+def _apply_timing_update(number: str, data: dict, ts: float | None = None) -> bool:
     if number not in state["timing"]:
         state["timing"][number] = {}
     driver = state["timing"][number]
@@ -300,10 +354,13 @@ def _apply_timing_update(number: str, data: dict):
             driver["Sectors"] = _merge_sectors(prev_sectors, _normalize_sectors(v))
         else:
             driver[k] = v
+    return _track_pit(number, data, time.time() if ts is None else ts)
 
 
 def notify_listeners(topic: str, data):
-    message = json.dumps({"topic": topic, "data": data})
+    # ts = hora real del evento; el frontend la usa como "ahora" para medir paradas
+    # respetando el delay, la pausa y los botones ±5s (sin depender del reloj del navegador).
+    message = json.dumps({"topic": topic, "data": data, "ts": time.time()})
     dead = []
     for q in listeners:
         try:
@@ -321,7 +378,10 @@ def reset_session_state():
     state["session_data"] = {}
     state["track_status"] = {}
     state["timing_stats"] = {}
+    state["pit_stops"] = {}
     _position_owner.clear()
+    _pit_open.clear()
+    _pit_laps.clear()
     logger.info("Estado de sesión reseteado")
 
 
@@ -396,11 +456,15 @@ def process_message(topic: str, msg):
                 if isinstance(lines, list):
                     logger.warning("TimingData Lines llegó como lista, ignorando")
                 return
+            ts = time.time()
+            pit_changed = False
             for number, data in lines.items():
                 if not isinstance(data, dict):
                     continue
-                _apply_timing_update(number, data)
+                pit_changed |= _apply_timing_update(number, data, ts)
             notify_listeners("timing", state["timing"])
+            if pit_changed:
+                notify_listeners("pit_stops", state["pit_stops"])
             _log_sector_sample()
             save_state()
 
@@ -410,11 +474,15 @@ def process_message(topic: str, msg):
                 if isinstance(lines, list):
                     logger.warning("TimingDataF1 Lines llegó como lista, ignorando")
                 return
+            ts = time.time()
+            pit_changed = False
             for number, data in lines.items():
                 if not isinstance(data, dict):
                     continue
-                _apply_timing_update(number, data)
+                pit_changed |= _apply_timing_update(number, data, ts)
             notify_listeners("timing", state["timing"])
+            if pit_changed:
+                notify_listeners("pit_stops", state["pit_stops"])
 
         elif topic == "TimingAppData":
             lines = msg.get("Lines", {})
@@ -499,7 +567,8 @@ def process_message(topic: str, msg):
             save_state()
 
         elif topic == "LapCount":
-            state["session_data"]["LapCount"] = msg
+            prev_lap = state["session_data"].get("LapCount")
+            state["session_data"]["LapCount"] = {**prev_lap, **msg} if isinstance(prev_lap, dict) else dict(msg)
             notify_listeners("session_data", state["session_data"])
 
         elif topic == "ExtrapolatedClock":
@@ -671,4 +740,6 @@ def get_full_state() -> dict:
         "session_data": state["session_data"],
         "track_status": state["track_status"],
         "timing_stats": state["timing_stats"],
+        "pit_stops": state["pit_stops"],
+        "now_ts": time.time(),
     }

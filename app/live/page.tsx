@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { F1_DRIVERS } from '../data/f1drivers'
+import { pitStateAt, pitDuration, type PitStop } from '../replay/pitStops'
 
 const WS_URL = process.env.NEXT_PUBLIC_API_URL?.replace('https://', 'wss://').replace('http://', 'ws://') + '/ws/live'
 const BASE_DELAY_MS = 10000
@@ -85,6 +86,9 @@ type LiveState = {
   session_data: any
   track_status: TrackStatus
   timing_stats: { [num: string]: DriverStats }
+  // Paradas en boxes (solo carrera) y "ahora" en hora de evento (ts del último mensaje liberado)
+  pit_stops?: { [num: string]: PitStop[] }
+  now_ts?: number
 }
 
 // Historial de tiempos de sector por piloto y sector
@@ -336,18 +340,35 @@ function MiniSectors({
   )
 }
 
+// La parada N pasa del stint N-1 al stint N; los compuestos salen de los datos de neumáticos.
+function attachCompounds(stops: PitStop[] | undefined, tyre: TyreData | undefined): PitStop[] {
+  return (stops ?? []).map(s => ({
+    ...s,
+    from: tyre?.Stints?.[String(s.stop - 1)]?.Compound,
+    to: tyre?.Stints?.[String(s.stop)]?.Compound,
+  }))
+}
+
 function ExpandedDriverPanel({
   num,
   data,
   stats,
   teamColor,
   history,
+  pitStops,
+  activeStop,
+  nowTs,
+  isRetired,
 }: {
   num: string
   data: DriverTiming
   stats?: DriverStats
   teamColor: string
   history: SectorHistory
+  pitStops?: PitStop[]
+  activeStop?: PitStop | null
+  nowTs?: number
+  isRetired?: boolean
 }) {
   const sectors = data.Sectors ?? {}
   const bestSectors = stats?.BestSectors ?? {}
@@ -486,6 +507,41 @@ function ExpandedDriverPanel({
           )}
         </div>
       </div>
+
+      {/* Paradas en boxes (solo carrera) */}
+      {pitStops && nowTs !== undefined && pitStops.filter(st => st.inTs <= nowTs).length > 0 && (
+        <div className="md:col-span-3">
+          <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: 'var(--f1-muted)' }}>
+            Paradas en boxes
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {pitStops.filter(st => st.inTs <= nowTs).map(st => {
+              const inProgress = st === activeStop
+              const abandoned = st.outTs === null && !!isRetired
+              const done = st.outTs !== null && st.outTs <= nowTs
+              return (
+                <div key={st.stop} className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                  <span className="font-black" style={{ color: teamColor }}>#{st.stop}</span>
+                  <span style={{ color: 'var(--f1-muted)' }}>V{st.lap}</span>
+                  <span className="font-mono font-bold" style={{ color: inProgress ? '#ffd700' : abandoned ? '#f87171' : 'inherit' }}>
+                    {abandoned ? 'Abandono' : `${pitDuration(st, nowTs).toFixed(1)}s${inProgress ? '…' : ''}`}
+                  </span>
+                  {done && st.from && st.to && (
+                    <span className="flex items-center gap-1">
+                      <span className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-black" style={{ background: TYRE_COLORS[st.from] ?? '#666', color: st.from === 'HARD' || st.from === 'MEDIUM' ? '#000' : '#fff' }}>{TYRE_LABELS[st.from] ?? '?'}</span>
+                      <span style={{ color: 'var(--f1-muted)' }}>→</span>
+                      <span className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-black" style={{ background: TYRE_COLORS[st.to] ?? '#666', color: st.to === 'HARD' || st.to === 'MEDIUM' ? '#000' : '#fff' }}>{TYRE_LABELS[st.to] ?? '?'}</span>
+                    </span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+          <p className="text-[10px] mt-2" style={{ color: 'var(--f1-muted)' }}>
+            Tiempo total en pit lane (entrada → salida), no el tiempo detenido.
+          </p>
+        </div>
+      )}
     </div>
   )
 }
@@ -551,6 +607,8 @@ export default function LiveTimingPage() {
 
   function applyMessage(msg: any) {
     if (msg.topic === 'ping') return
+    // "Ahora" en hora de evento: ts del último mensaje liberado (respeta delay, pausa y ±5s)
+    if (msg.topic !== 'snapshot' && typeof msg.ts === 'number') pendingRef.current.other.now_ts = msg.ts
     if (msg.topic === 'snapshot') {
       setLiveState(msg.data)
       // Reset historial al recibir snapshot (nueva sesión)
@@ -592,6 +650,7 @@ export default function LiveTimingPage() {
         : msg.topic === 'race_control' ? 'race_control'
         : msg.topic === 'session' ? 'session'
         : msg.topic === 'track_status' ? 'track_status'
+        : msg.topic === 'pit_stops' ? 'pit_stops'
         : null
       if (msg.topic === 'session_data') {
         pendingRef.current.other.session_data = {
@@ -684,6 +743,14 @@ export default function LiveTimingPage() {
   const trackStatusCode = liveState?.track_status?.Status ?? '1'
   const trackStatusInfo = TRACK_STATUS_INFO[trackStatusCode]
   const weather = liveState?.weather
+  const nowTs = liveState?.now_ts ?? 0
+  const pitStopsByDriver = liveState?.pit_stops ?? {}
+  const boxesRanking = isRace
+    ? Object.entries(pitStopsByDriver)
+        .flatMap(([num, ss]) =>
+          ss.filter(st => st.outTs !== null && st.outTs <= nowTs).map(st => ({ num, stop: st, dur: (st.outTs as number) - st.inTs })))
+        .sort((a, b) => a.dur - b.dur)
+    : []
 
   const sortedDrivers = liveState
     ? Object.entries(liveState.timing)
@@ -892,6 +959,8 @@ export default function LiveTimingPage() {
                   const lapColor = data.LastLapTime?.OverallFastest ? '#a855f7'
                     : data.LastLapTime?.PersonalFastest ? '#22c55e' : 'inherit'
                   const isRetired = data.Retired
+                  const stops = isRace ? attachCompounds(pitStopsByDriver[num], tyre) : []
+                  const activeStop = !isRetired ? pitStateAt(stops, nowTs).active : null
                   const statusLabel = isRetired ? 'RET' : data.InPit ? 'PIT' : data.PitOut ? 'OUT' : data.Stopped ? 'STP' : null
                   const statusColor = isRetired ? '#f87171' : data.InPit ? '#ffd700' : data.PitOut ? '#22c55e' : '#f87171'
                   const gap = pos === 1 ? 'LÍDER' : (data.GapToLeader ?? '—')
@@ -941,7 +1010,11 @@ export default function LiveTimingPage() {
                               </span>
                             )}
                           </div>
-                          <div className="text-xs truncate" style={{ color: 'var(--f1-muted)' }}>{team}</div>
+                          {activeStop ? (
+                            <div className="text-xs font-mono font-bold truncate" style={{ color: '#ffd700' }}>{pitDuration(activeStop, nowTs).toFixed(1)}s</div>
+                          ) : (
+                            <div className="text-xs truncate" style={{ color: 'var(--f1-muted)' }}>{team}</div>
+                          )}
                         </div>
 
                         <div className="flex items-center gap-1.5">
@@ -998,7 +1071,7 @@ export default function LiveTimingPage() {
 
                       {/* Panel expandido desktop */}
                       {isExpanded && (
-                        <ExpandedDriverPanel num={num} data={data} stats={stats} teamColor={teamColor} history={sectorHistory} />
+                        <ExpandedDriverPanel num={num} data={data} stats={stats} teamColor={teamColor} history={sectorHistory} pitStops={stops} activeStop={activeStop} nowTs={nowTs} isRetired={isRetired} />
                       )}
 
                       {/* Mobile */}
@@ -1033,7 +1106,7 @@ export default function LiveTimingPage() {
                       {/* Panel expandido mobile */}
                       {isExpanded && (
                         <div className="md:hidden">
-                          <ExpandedDriverPanel num={num} data={data} stats={stats} teamColor={teamColor} history={sectorHistory} />
+                          <ExpandedDriverPanel num={num} data={data} stats={stats} teamColor={teamColor} history={sectorHistory} pitStops={stops} activeStop={activeStop} nowTs={nowTs} isRetired={isRetired} />
                         </div>
                       )}
                     </div>
@@ -1047,6 +1120,28 @@ export default function LiveTimingPage() {
         {/* Panel lateral */}
         {hasData && (
           <div className="flex flex-col gap-4">
+            {isRace && boxesRanking.length > 0 && (
+              <div className="rounded-2xl px-5 py-4" style={CARD}>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--f1-muted)' }}>Boxes</h3>
+                  <span className="text-[10px]" style={{ color: 'var(--f1-muted)' }}>{boxesRanking.length} paradas</span>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  {boxesRanking.slice(0, 5).map(({ num, stop, dur }, i) => (
+                    <div key={`${num}-${stop.stop}`} className="flex items-center justify-between text-xs">
+                      <span className="flex items-center gap-2">
+                        <span className="font-black w-4" style={{ color: i === 0 ? '#a855f7' : 'var(--f1-muted)' }}>{i + 1}</span>
+                        <span className="font-bold">{F1_DRIVERS[num]?.acronym ?? liveState?.timing[num]?.Tla ?? num}</span>
+                        <span style={{ color: 'var(--f1-muted)' }}>V{stop.lap}</span>
+                      </span>
+                      <span className="font-mono font-bold" style={{ color: i === 0 ? '#a855f7' : 'inherit' }}>{dur.toFixed(1)}s</span>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[10px] mt-3" style={{ color: 'var(--f1-muted)' }}>Tiempo en pit lane, no tiempo detenido.</p>
+              </div>
+            )}
+
             {weather && Object.keys(weather).length > 0 && (
               <div className="rounded-2xl px-5 py-4" style={CARD}>
                 <h3 className="text-xs font-bold uppercase tracking-widest mb-4" style={{ color: 'var(--f1-muted)' }}>
