@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { buildPitStops, pitStateAt, pitDuration } from './pitStops'
+import { buildTimeline, partAt, type KeyEvent, type KeyEventKind } from './keyEvents'
 import { F1_DRIVERS } from '../data/f1drivers'
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -111,6 +112,28 @@ const CARD = {
   border: '1px solid var(--f1-card-border)',
   boxShadow: 'var(--f1-card-shadow)',
 } as const
+
+// ── Eventos clave (navegación) ─────────────────────────────────────────────
+const KIND_COLOR: Record<KeyEventKind, string> = {
+  start: '#ffffff', finish: '#ffffff', part: '#ffffff',
+  sc: '#f59e0b', vsc: '#fbbf24', red: '#ef4444', yellow: '#facc15',
+  incident: '#94a3b8', penalty: '#fb923c', retired: '#f87171', pit: '#22d3ee',
+}
+const PHASE_KINDS = new Set<KeyEventKind>(['start', 'finish', 'part'])
+const BAND_KINDS = new Set<KeyEventKind>(['sc', 'vsc', 'red'])
+const EVENT_FILTERS = [
+  { key: 'neutral', label: 'Neutralizaciones', kinds: ['sc', 'vsc', 'red', 'yellow'] as KeyEventKind[] },
+  { key: 'incidents', label: 'Incidentes', kinds: ['incident', 'penalty'] as KeyEventKind[] },
+  { key: 'retired', label: 'Abandonos', kinds: ['retired'] as KeyEventKind[] },
+  { key: 'pit', label: 'Boxes', kinds: ['pit'] as KeyEventKind[] },
+] as const
+type EventFilterKey = (typeof EVENT_FILTERS)[number]['key']
+const EVENT_LEAD_SECONDS = 5   // al saltar a un evento se arranca unos segundos antes
+
+// Posición sobre el slider: el pulgar del <input range> recorre (ancho - 16px)
+function thumbLeft(fraction: number): string {
+  return `calc(${fraction * 100}% + ${8 - 16 * fraction}px)`
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 function formatTime(seconds: number): string {
@@ -465,6 +488,7 @@ export default function ReplayPage() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [favoriteDrivers, setFavoriteDrivers] = useState<string[]>([])
   const [positionFlash, setPositionFlash] = useState<Record<string, number>>({})
+  const [eventFilters, setEventFilters] = useState<Record<EventFilterKey, boolean>>({ neutral: true, incidents: true, retired: true, pit: false })
 
   const playingRef = useRef(false)
   const speedRef = useRef(5)
@@ -597,6 +621,12 @@ export default function ReplayPage() {
     handleSlider(fakeEvent)
   }
 
+  // Salto programático a un instante (segundos desde el inicio de la grabación)
+  function seekTo(seconds: number) {
+    const val = Math.max(0, Math.min(duration, seconds))
+    handleSlider({ target: { value: String(val) } } as React.ChangeEvent<HTMLInputElement>)
+  }
+
   useEffect(() => {
     try {
       const saved = window.localStorage.getItem('f1-replay-favorite-drivers')
@@ -688,6 +718,32 @@ export default function ReplayPage() {
     () => (isRace && file ? buildPitStops(file.events) : {}),
     [isRace, file],
   )
+
+  // Línea de tiempo de eventos clave: se calcula una vez al cargar el archivo
+  const timeline = useMemo(
+    () => (file
+      ? buildTimeline(file.events, { sessionType, pitStops: pitStopsByDriver, nameOf: (n: string) => F1_DRIVERS[n]?.acronym ?? n })
+      : null),
+    [file, sessionType, pitStopsByDriver],
+  )
+  const isEventVisible = (e: KeyEvent) =>
+    PHASE_KINDS.has(e.kind) || EVENT_FILTERS.some(f => eventFilters[f.key] && (f.kinds as KeyEventKind[]).includes(e.kind))
+  const visibleEvents = timeline ? timeline.events.filter(isEventVisible) : []
+  const currentEventId = [...visibleEvents].reverse().find(e => e.t <= currentTs + 0.5)?.id
+  const maxLap = timeline ? timeline.lapStarts.length - 1 : 0
+
+  function goToLap(lap: number) {
+    if (!timeline || maxLap < 1) return
+    const target = Math.max(1, Math.min(maxLap, lap))
+    seekTo(timeline.lapStarts[target] ?? 0)
+  }
+  // "‹": si ya pasaron >10s de la vuelta actual vuelve a su inicio; si no, va a la anterior
+  function previousLap() {
+    if (!timeline) return
+    const cur = currentLap ?? 1
+    const startOfCur = timeline.lapStarts[cur]
+    goToLap(startOfCur !== undefined && currentTs - startOfCur > 10 ? cur : cur - 1)
+  }
   const boxesRanking = isRace
     ? Object.entries(pitStopsByDriver)
         .flatMap(([num, ss]) =>
@@ -778,6 +834,39 @@ export default function ReplayPage() {
               className="w-full"
               style={{ accentColor: '#e10600', height: 4, cursor: 'pointer' }}
             />
+            {timeline && duration > 0 && (
+              <div className="relative h-5 mt-1" role="group" aria-label="Eventos clave de la sesión">
+                {eventFilters.neutral && timeline.bands.map(b => (
+                  <button
+                    key={`band-${b.kind}-${b.start}`}
+                    type="button"
+                    onClick={() => seekTo(b.start - EVENT_LEAD_SECONDS)}
+                    title={`${b.kind === 'sc' ? 'Safety Car' : b.kind === 'vsc' ? 'Virtual Safety Car' : 'Bandera roja'} · ${formatTime(b.start)} → ${formatTime(b.end)}`}
+                    aria-label={`Ir a ${formatTime(b.start)}`}
+                    className="absolute top-2 h-2 rounded-sm transition-opacity opacity-70 hover:opacity-100"
+                    style={{
+                      left: thumbLeft(b.start / duration),
+                      width: `calc(${((b.end - b.start) / duration) * 100}% - ${(16 * (b.end - b.start)) / duration}px)`,
+                      minWidth: 4,
+                      background: KIND_COLOR[b.kind],
+                    }}
+                  />
+                ))}
+                {visibleEvents.filter(e => !BAND_KINDS.has(e.kind)).map(e => (
+                  <button
+                    key={e.id}
+                    type="button"
+                    onClick={() => seekTo(e.t - EVENT_LEAD_SECONDS)}
+                    title={`${formatTime(e.t)} · ${e.label}`}
+                    aria-label={`Ir a ${formatTime(e.t)}: ${e.label}`}
+                    className="absolute top-0 flex justify-center group"
+                    style={{ left: thumbLeft(e.t / duration), width: 9, marginLeft: -4, height: PHASE_KINDS.has(e.kind) ? 20 : 12 }}
+                  >
+                    <span className="block h-full rounded-sm transition-all group-hover:w-[5px]" style={{ width: PHASE_KINDS.has(e.kind) ? 3 : 2, background: KIND_COLOR[e.kind] }} />
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="flex justify-between text-xs mt-1" style={{ color: 'var(--f1-muted)' }}>
               <span>{formatTime(currentTs)}</span>
               <span style={{ color: '#888' }}>{eventsApplied.toLocaleString()} / {totalEvents.toLocaleString()} eventos</span>
@@ -831,6 +920,42 @@ export default function ReplayPage() {
               ))}
             </div>
           </div>
+
+          {/* Ir a… (largada / vueltas en carrera, partes en qualy) */}
+          {timeline && ((isRace && timeline.raceStart !== null) || (!isRace && timeline.parts.length > 0)) && (
+            <div className="flex items-center gap-2 flex-wrap mt-3 pt-3" style={{ borderTop: '1px solid var(--f1-card-border)' }}>
+              <span className="text-xs mr-1" style={{ color: 'var(--f1-muted)' }}>Ir a:</span>
+              {isRace ? (
+                <>
+                  <button onClick={() => seekTo((timeline.raceStart as number) - EVENT_LEAD_SECONDS)} className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all hover:opacity-80" style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--f1-muted)', border: '1px solid var(--f1-card-border)' }}>
+                    🚦 Largada
+                  </button>
+                  {timeline.raceFinish !== null && (
+                    <button onClick={() => seekTo((timeline.raceFinish as number) - EVENT_LEAD_SECONDS)} className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all hover:opacity-80" style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--f1-muted)', border: '1px solid var(--f1-card-border)' }}>
+                      🏁 Bandera a cuadros
+                    </button>
+                  )}
+                  {maxLap > 1 && (
+                    <div className="flex items-center gap-1 ml-auto">
+                      <span className="text-xs mr-1" style={{ color: 'var(--f1-muted)' }}>Vuelta</span>
+                      <button onClick={previousLap} aria-label="Vuelta anterior" className="w-7 h-7 rounded-lg text-sm font-bold transition-all hover:opacity-80" style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--f1-muted)', border: '1px solid var(--f1-card-border)' }}>‹</button>
+                      <span className="text-xs font-mono font-bold w-14 text-center">{currentLap ?? '—'} / {maxLap}</span>
+                      <button onClick={() => goToLap((currentLap ?? 0) + 1)} disabled={currentLap !== undefined && currentLap >= maxLap} aria-label="Vuelta siguiente" className="w-7 h-7 rounded-lg text-sm font-bold transition-all hover:opacity-80 disabled:opacity-30" style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--f1-muted)', border: '1px solid var(--f1-card-border)' }}>›</button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                timeline.parts.map(p => {
+                  const active = partAt(timeline.parts, currentTs) === p.label
+                  return (
+                    <button key={p.label} onClick={() => seekTo(p.t - EVENT_LEAD_SECONDS)} className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all hover:opacity-80" style={{ background: active ? 'rgba(225,6,0,0.15)' : 'rgba(255,255,255,0.06)', color: active ? '#e10600' : 'var(--f1-muted)', border: `1px solid ${active ? 'rgba(225,6,0,0.4)' : 'var(--f1-card-border)'}` }}>
+                      {p.label}
+                    </button>
+                  )
+                })
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -1153,6 +1278,54 @@ export default function ReplayPage() {
                   Replay {formatTime(currentTs)} / {formatTime(duration)}
                 </div>
               </div>
+
+              {/* Eventos clave: lista clickeable */}
+              {timeline && timeline.events.length > 0 && (
+                <div className="rounded-2xl px-5 py-4" style={CARD}>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--f1-muted)' }}>Eventos</h3>
+                    <span className="text-[10px]" style={{ color: 'var(--f1-muted)' }}>{visibleEvents.length}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 mb-3">
+                    {EVENT_FILTERS.filter(f => timeline.events.some(e => (f.kinds as KeyEventKind[]).includes(e.kind))).map(f => {
+                      const on = eventFilters[f.key]
+                      return (
+                        <button
+                          key={f.key}
+                          type="button"
+                          aria-pressed={on}
+                          onClick={() => setEventFilters(prev => ({ ...prev, [f.key]: !prev[f.key] }))}
+                          className="px-2 py-1 rounded-md text-[10px] font-bold transition-all"
+                          style={{ background: on ? 'rgba(225,6,0,0.12)' : 'rgba(255,255,255,0.04)', color: on ? '#e10600' : 'var(--f1-muted)', border: `1px solid ${on ? 'rgba(225,6,0,0.35)' : 'var(--f1-card-border)'}` }}
+                        >
+                          {f.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <div className="flex flex-col gap-1 max-h-72 overflow-y-auto pr-1">
+                    {visibleEvents.map(e => (
+                      <button
+                        key={e.id}
+                        type="button"
+                        onClick={() => seekTo(e.t - EVENT_LEAD_SECONDS)}
+                        className="flex items-start gap-2 text-left text-xs px-2 py-1.5 rounded-lg transition-colors hover:bg-white/5"
+                        style={{ background: e.id === currentEventId ? 'rgba(225,6,0,0.10)' : 'transparent', borderLeft: `2px solid ${KIND_COLOR[e.kind]}` }}
+                      >
+                        <span className="font-mono shrink-0" style={{ color: 'var(--f1-muted)' }}>{formatTime(e.t)}</span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block leading-snug break-words">{e.label}</span>
+                          {(e.lap || e.part || e.detail) && (
+                            <span className="block text-[10px]" style={{ color: 'var(--f1-muted)' }}>
+                              {[e.lap ? `V${e.lap}` : e.part, e.detail].filter(Boolean).join(' · ')}
+                            </span>
+                          )}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Boxes: paradas más rápidas (solo carrera) */}
               {isRace && boxesRanking.length > 0 && (
