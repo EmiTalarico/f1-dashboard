@@ -143,3 +143,32 @@ body {
   45% { background: rgba(255,215,0,0.12); box-shadow: inset 0 0 0 1px rgba(255,215,0,0.30), 0 0 14px rgba(255,215,0,0.10); }
   100% { background: transparent; box-shadow: none; }
 }
+/* Tabla de pilotos (replay): la grilla se adapta al ancho REAL de la tarjeta, no al de la ventana.
+   Con el panel lateral abierto la tabla ocupa 3/4 del ancho y en notebook la columna del piloto
+   colapsaba (neumático encima de la sigla, estrella tapada). Cada escalón achica columnas y,
+   si hace falta, oculta "Mejor". */
+.driver-table { container-type: inline-size; container-name: drivers; }
+.driver-grid {
+  display: grid;
+  align-items: center;
+  column-gap: 8px;
+  padding: 10px 20px;
+  grid-template-columns: 32px 36px minmax(150px, 1fr) 72px 90px 90px 100px 90px 90px 90px 28px;
+}
+@container drivers (max-width: 1000px) {
+  .driver-grid {
+    column-gap: 6px;
+    padding-inline: 16px;
+    grid-template-columns: 28px 32px minmax(140px, 1fr) 64px 74px 74px 78px 76px 76px 76px 24px;
+  }
+}
+@container drivers (max-width: 860px) {
+  .driver-grid { grid-template-columns: 28px 32px minmax(140px, 1fr) 64px 74px 78px 70px 70px 70px 24px; }
+  .driver-grid .col-best { display: none; }
+}
+@container drivers (max-width: 770px) {
+  .driver-grid {
+    padding-inline: 12px;
+    grid-template-columns: 26px 30px minmax(130px, 1fr) 60px 68px 70px 62px 62px 62px 22px;
+  }
+}

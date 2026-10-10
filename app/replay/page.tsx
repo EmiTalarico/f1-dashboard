@@ -963,7 +963,7 @@ export default function ReplayPage() {
       {file && (
         <div className={hasData ? 'grid grid-cols-1 xl:grid-cols-4 gap-4' : ''}>
           <div className={hasData ? 'xl:col-span-3' : ''}>
-            <div className="rounded-2xl overflow-hidden" style={CARD}>
+            <div className="rounded-2xl overflow-hidden driver-table" style={CARD}>
 
               {/* Favoritos */}
               <div className="flex items-center justify-between gap-3 px-5 py-3" style={{ borderBottom: '1px solid var(--f1-card-border)', background: 'rgba(255,255,255,0.018)' }}>
@@ -983,16 +983,14 @@ export default function ReplayPage() {
 
               {/* Header tabla */}
               <div
-                className="hidden md:grid px-5 py-2.5 text-xs font-bold uppercase tracking-wider"
+                className="hidden md:grid driver-grid text-xs font-bold uppercase tracking-wider"
                 style={{
                   color: 'var(--f1-muted)',
                   borderBottom: '1px solid var(--f1-card-border)',
-                  gridTemplateColumns: '32px 36px 1fr 72px 90px 90px 100px 90px 90px 90px 28px',
-                  gap: '8px',
                 }}
               >
                 <span>Pos</span><span>#</span><span>Piloto</span><span>Neum.</span>
-                <span>Última</span><span>Mejor</span><span>Gap / Int.</span>
+                <span>Última</span><span className="col-best">Mejor</span><span>Gap / Int.</span>
                 <span>S1</span><span>S2</span><span>S3</span><span>Pit</span>
               </div>
 
@@ -1028,10 +1026,8 @@ export default function ReplayPage() {
                       <div key={num} style={{ opacity: isRetired ? 0.45 : 1, animation: isPositionFlashing ? 'favoritePositionFlash 900ms ease' : undefined }}>
                         {/* Desktop */}
                         <div
-                          className="hidden md:grid items-center px-5 py-2.5 text-sm cursor-pointer transition-colors duration-100"
+                          className="hidden md:grid driver-grid text-sm cursor-pointer transition-colors duration-100"
                           style={{
-                            gridTemplateColumns: '32px 36px 1fr 72px 90px 90px 100px 90px 90px 90px 28px',
-                            gap: '8px',
                             borderLeft: `3px solid ${isFavorite ? '#ffd700' : teamColor}`,
                             background: isExpanded ? `${teamColor}10` : isFavorite ? 'rgba(255,215,0,0.055)' : pos <= 3 ? `${teamColor}06` : 'transparent',
                             boxShadow: isFavorite ? 'inset 0 0 0 1px rgba(255,215,0,0.08)' : 'none',
@@ -1072,7 +1068,7 @@ export default function ReplayPage() {
                           </div>
 
                           <span className="font-mono text-xs font-bold" style={{ color: lapColor }}>{data.LastLapTime?.Value ?? '—'}</span>
-                          <span className="font-mono text-xs" style={{ color: 'var(--f1-muted)' }}>{data.BestLapTime?.Value ?? '—'}</span>
+                          <span className="col-best font-mono text-xs" style={{ color: 'var(--f1-muted)' }}>{data.BestLapTime?.Value ?? '—'}</span>
 
                           <div>
                             <div className="font-mono text-xs font-bold" style={{ color: pos === 1 ? '#22c55e' : 'inherit' }}>{gap}</div>
