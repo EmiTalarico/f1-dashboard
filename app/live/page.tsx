@@ -925,19 +925,17 @@ export default function LiveTimingPage() {
 
         {/* Tabla */}
         <div className={hasData ? 'xl:col-span-3' : ''}>
-          <div className="rounded-2xl overflow-hidden" style={CARD}>
+          <div className="rounded-2xl overflow-hidden driver-table" style={CARD}>
 
             <div
-              className="hidden md:grid px-5 py-2.5 text-xs font-bold uppercase tracking-wider"
+              className="hidden md:grid driver-grid text-xs font-bold uppercase tracking-wider"
               style={{
                 color: 'var(--f1-muted)',
                 borderBottom: '1px solid var(--f1-card-border)',
-                gridTemplateColumns: '32px 36px 1fr 72px 90px 90px 100px 90px 90px 90px 28px',
-                gap: '8px',
               }}
             >
               <span>Pos</span><span>#</span><span>Piloto</span><span>Neum.</span>
-              <span>Última</span><span>Mejor</span><span>Gap / Int.</span>
+              <span>Última</span><span className="col-best">Mejor</span><span>Gap / Int.</span>
               <span>S1</span><span>S2</span><span>S3</span><span>Pit</span>
             </div>
 
@@ -980,10 +978,8 @@ export default function LiveTimingPage() {
                     <div key={num} style={{ opacity: isRetired ? 0.45 : 1 }}>
                       {/* Desktop row */}
                       <div
-                        className="hidden md:grid items-center px-5 py-2.5 text-sm cursor-pointer transition-colors duration-100"
+                        className="hidden md:grid driver-grid text-sm cursor-pointer transition-colors duration-100"
                         style={{
-                          gridTemplateColumns: '32px 36px 1fr 72px 90px 90px 100px 90px 90px 90px 28px',
-                          gap: '8px',
                           borderLeft: `3px solid ${teamColor}`,
                           background: favorites.has(num)
                             ? `${teamColor}12`
@@ -1040,7 +1036,7 @@ export default function LiveTimingPage() {
                         <span className="font-mono text-xs font-bold" style={{ color: lapColor }}>
                           {data.LastLapTime?.Value ?? '—'}
                         </span>
-                        <span className="font-mono text-xs" style={{ color: 'var(--f1-muted)' }}>
+                        <span className="col-best font-mono text-xs" style={{ color: 'var(--f1-muted)' }}>
                           {data.BestLapTime?.Value ?? '—'}
                         </span>
 
