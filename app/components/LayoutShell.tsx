@@ -1,25 +1,21 @@
 'use client'
 
-import { ReactNode } from 'react'
+import { CSSProperties, ReactNode } from 'react'
 import { useSidebar } from './SidebarContext'
 import Footer from './Footer'
 
+// Antes se renderizaba {children} dos veces (una copia para desktop y otra para mobile, ocultas con
+// CSS). Las dos copias quedaban montadas: cada página corría doble (p. ej. el live abría dos
+// WebSockets). Ahora hay UNA sola copia y el margen del sidebar solo se aplica desde `md`.
 export default function LayoutShell({ children }: { children: ReactNode }) {
   const { collapsed } = useSidebar()
 
   return (
     <div className="pt-16 md:pt-0">
-      {/* Desktop */}
       <div
-        className="hidden md:block transition-[margin-left] duration-300"
-        style={{ marginLeft: collapsed ? '76px' : '232px' }}
+        className="transition-[margin-left] duration-300 md:ml-[var(--sidebar-width)]"
+        style={{ '--sidebar-width': collapsed ? '76px' : '232px' } as CSSProperties}
       >
-        {children}
-        <Footer />
-      </div>
-
-      {/* Mobile */}
-      <div className="md:hidden">
         {children}
         <Footer />
       </div>
