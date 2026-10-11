@@ -47,7 +47,11 @@ state = {
     "track_status": {},
     "timing_stats": {},
     "pit_stops": {},
+    "track_history": [],      # cambios de TrackStatus: {ts, status, lap}
+    "race_start_ts": None,    # ts del primer SessionStatus "Started"
 }
+
+MAX_TRACK_HISTORY = 500
 
 listeners = []
 
@@ -154,6 +158,8 @@ async def save_state_async():
             "track_status": state["track_status"],
             "timing_stats": state["timing_stats"],
             "pit_stops": state["pit_stops"],
+            "track_history": state["track_history"],
+            "race_start_ts": state["race_start_ts"],
         }
         await _redis.set(REDIS_KEY, json.dumps(data), ex=86400 * 7)
     except Exception as e:
@@ -180,7 +186,8 @@ async def load_state():
             return
         data = json.loads(raw)
         for key in ("session", "timing", "tyres", "weather", "race_control",
-                    "session_data", "track_status", "timing_stats", "pit_stops"):
+                    "session_data", "track_status", "timing_stats", "pit_stops",
+                    "track_history", "race_start_ts"):
             if key in data:
                 state[key] = data[key]
         logger.info(f"✅ Estado previo cargado desde Redis — {len(state['timing'])} pilotos, sesión: {state['session'].get('Name', 'desconocida')}")
@@ -357,6 +364,21 @@ def _apply_timing_update(number: str, data: dict, ts: float | None = None) -> bo
     return _track_pit(number, data, time.time() if ts is None else ts)
 
 
+def _track_history_add(msg: dict, ts: float) -> bool:
+    """Registra un cambio de TrackStatus (solo si cambia) con la vuelta del líder en ese momento."""
+    status = str(msg.get("Status", ""))
+    if not status:
+        return False
+    hist = state["track_history"]
+    if hist and hist[-1]["status"] == status:
+        return False
+    lap_info = state["session_data"].get("LapCount")
+    lap = lap_info.get("CurrentLap") if isinstance(lap_info, dict) else None
+    hist.append({"ts": ts, "status": status, "lap": lap})
+    del hist[:-MAX_TRACK_HISTORY]
+    return True
+
+
 def notify_listeners(topic: str, data):
     # ts = hora real del evento; el frontend la usa como "ahora" para medir paradas
     # respetando el delay, la pausa y los botones ±5s (sin depender del reloj del navegador).
@@ -379,6 +401,8 @@ def reset_session_state():
     state["track_status"] = {}
     state["timing_stats"] = {}
     state["pit_stops"] = {}
+    state["track_history"] = []
+    state["race_start_ts"] = None
     _position_owner.clear()
     _pit_open.clear()
     _pit_laps.clear()
@@ -552,6 +576,9 @@ def process_message(topic: str, msg):
         elif topic == "TrackStatus":
             state["track_status"] = msg
             notify_listeners("track_status", msg)
+            if _track_history_add(msg, time.time()):
+                notify_listeners("track_history", state["track_history"])
+                save_state()
 
         elif topic == "TimingStats":
             lines = msg.get("Lines", {})
@@ -578,6 +605,10 @@ def process_message(topic: str, msg):
         elif topic == "SessionStatus":
             state["session_data"]["Status"] = msg
             notify_listeners("session_data", state["session_data"])
+            if msg.get("Status") == "Started" and state["race_start_ts"] is None:
+                state["race_start_ts"] = time.time()
+                notify_listeners("race_start", state["race_start_ts"])
+                save_state()
 
         # Grabar el evento en Redis si estamos grabando
         if _recording and topic in RECORD_TOPICS:
@@ -741,5 +772,7 @@ def get_full_state() -> dict:
         "track_status": state["track_status"],
         "timing_stats": state["timing_stats"],
         "pit_stops": state["pit_stops"],
+        "track_history": state["track_history"],
+        "race_start_ts": state["race_start_ts"],
         "now_ts": time.time(),
     }

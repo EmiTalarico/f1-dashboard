@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { F1_DRIVERS } from '../data/f1drivers'
 import { pitStateAt, pitDuration, type PitStop } from '../replay/pitStops'
+import { buildNeutralizations, formatDuration, NEUTRALIZATION_COLOR, NEUTRALIZATION_LABEL, type TrackChange } from './trackBands'
 
 const WS_URL = process.env.NEXT_PUBLIC_API_URL?.replace('https://', 'wss://').replace('http://', 'ws://') + '/ws/live'
 const BASE_DELAY_MS = 10000
@@ -88,6 +89,9 @@ type LiveState = {
   timing_stats: { [num: string]: DriverStats }
   // Paradas en boxes (solo carrera) y "ahora" en hora de evento (ts del último mensaje liberado)
   pit_stops?: { [num: string]: PitStop[] }
+  // Historial de TrackStatus (para neutralizaciones) y ts de la largada
+  track_history?: TrackChange[]
+  race_start_ts?: number | null
   now_ts?: number
 }
 
@@ -651,6 +655,8 @@ export default function LiveTimingPage() {
         : msg.topic === 'session' ? 'session'
         : msg.topic === 'track_status' ? 'track_status'
         : msg.topic === 'pit_stops' ? 'pit_stops'
+        : msg.topic === 'track_history' ? 'track_history'
+        : msg.topic === 'race_start' ? 'race_start_ts'
         : null
       if (msg.topic === 'session_data') {
         pendingRef.current.other.session_data = {
@@ -745,6 +751,7 @@ export default function LiveTimingPage() {
   const weather = liveState?.weather
   const nowTs = liveState?.now_ts ?? 0
   const pitStopsByDriver = liveState?.pit_stops ?? {}
+  const neutralizations = buildNeutralizations(liveState?.track_history, nowTs, liveState?.race_start_ts)
   const boxesRanking = isRace
     ? Object.entries(pitStopsByDriver)
         .flatMap(([num, ss]) =>
@@ -1120,6 +1127,35 @@ export default function LiveTimingPage() {
         {/* Panel lateral */}
         {hasData && (
           <div className="flex flex-col gap-4">
+            {neutralizations.length > 0 && (
+              <div className="rounded-2xl px-5 py-4" style={CARD}>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--f1-muted)' }}>Neutralizaciones</h3>
+                  <span className="text-[10px]" style={{ color: 'var(--f1-muted)' }}>{neutralizations.length}</span>
+                </div>
+                <div className="flex flex-col gap-2">
+                  {[...neutralizations].reverse().map(n => {
+                    const color = NEUTRALIZATION_COLOR[n.kind]
+                    const active = n.endTs === null
+                    const when = n.beforeStart
+                      ? (isRace ? 'Antes de la largada' : 'Antes del inicio')
+                      : isRace && n.lap ? `Vuelta ${n.lap}` : new Date(n.startTs * 1000).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
+                    return (
+                      <div key={`${n.kind}-${n.startTs}`} className="flex items-center justify-between text-xs pl-2" style={{ borderLeft: `3px solid ${color}` }}>
+                        <span>
+                          <span className="font-bold">{NEUTRALIZATION_LABEL[n.kind]}</span>
+                          <span className="block text-[10px]" style={{ color: 'var(--f1-muted)' }}>{when}</span>
+                        </span>
+                        <span className="font-mono font-bold" style={{ color: active ? color : 'inherit' }}>
+                          {active ? `En curso · ${formatDuration(nowTs - n.startTs)}` : formatDuration((n.endTs as number) - n.startTs)}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
             {isRace && boxesRanking.length > 0 && (
               <div className="rounded-2xl px-5 py-4" style={CARD}>
                 <div className="flex items-center justify-between mb-3">
